@@ -206,6 +206,16 @@ var defaultValueMap = map[string]string{
 	"xrayOutboundTestUrl":         "https://www.google.com/generate_204",
 	"panelOutbound":               "",
 	"devChannelEnable":            "false",
+	"gatewayEnable":               "false",
+	"gatewayPublicPort":           "443",
+	"gatewayL7Port":               "30000",
+	"gatewayDomain":               "",
+	"gatewaySpeedtestEnable":      "true",
+	"acmeEmail":                   "",
+	"acmeMode":                    "tls_alpn",
+	"acmeCfApiToken":              "",
+	"singboxClashPort":            "62795",
+	"singboxClashSecret":          random.Seq(32),
 
 	// LDAP defaults
 	"ldapEnable":             "false",
@@ -2058,4 +2068,88 @@ func (s *SettingService) GetFactoryDefaults() map[string]string {
 		}
 	}
 	return result
+}
+
+func (s *SettingService) GetGatewayEnable() (bool, error) {
+	return s.getBool("gatewayEnable")
+}
+
+func (s *SettingService) SetGatewayEnable(enable bool) error {
+	return s.setBool("gatewayEnable", enable)
+}
+
+func (s *SettingService) GetGatewayPublicPort() (int, error) {
+	return s.getInt("gatewayPublicPort")
+}
+
+func (s *SettingService) SetGatewayPublicPort(port int) error {
+	return s.setInt("gatewayPublicPort", port)
+}
+
+func (s *SettingService) GetGatewayL7Port() (int, error) {
+	return s.getInt("gatewayL7Port")
+}
+
+func (s *SettingService) SetGatewayL7Port(port int) error {
+	return s.setInt("gatewayL7Port", port)
+}
+
+func (s *SettingService) GetGatewayDomain() (string, error) {
+	return s.getString("gatewayDomain")
+}
+
+func (s *SettingService) SetGatewayDomain(domain string) error {
+	return s.setString("gatewayDomain", strings.TrimSpace(domain))
+}
+
+func (s *SettingService) GetGatewaySpeedtestEnable() (bool, error) {
+	return s.getBool("gatewaySpeedtestEnable")
+}
+
+func (s *SettingService) SetGatewaySpeedtestEnable(enable bool) error {
+	return s.setBool("gatewaySpeedtestEnable", enable)
+}
+
+func (s *SettingService) GetAcmeEmail() (string, error) {
+	return s.getString("acmeEmail")
+}
+
+func (s *SettingService) SetAcmeEmail(email string) error {
+	return s.setString("acmeEmail", strings.TrimSpace(email))
+}
+
+func (s *SettingService) GetAcmeMode() (string, error) {
+	return s.getString("acmeMode")
+}
+
+func (s *SettingService) SetAcmeMode(mode string) error {
+	return s.setString("acmeMode", strings.TrimSpace(mode))
+}
+
+func (s *SettingService) GetAcmeCfApiToken() (string, error) {
+	return s.getString("acmeCfApiToken")
+}
+
+func (s *SettingService) SetAcmeCfApiToken(token string) error {
+	return s.setString("acmeCfApiToken", strings.TrimSpace(token))
+}
+
+func (s *SettingService) GetSingboxClashPort() (int, error) {
+	return s.getInt("singboxClashPort")
+}
+
+func (s *SettingService) GetSingboxClashSecret() (string, error) {
+	secret, err := s.getString("singboxClashSecret")
+	if err != nil {
+		return "", err
+	}
+	if secret == "" || secret == defaultValueMap["singboxClashSecret"] {
+		if secret == "" {
+			secret = random.Seq(32)
+		}
+		if saveErr := s.saveSetting("singboxClashSecret", secret); saveErr != nil {
+			logger.Warning("save singboxClashSecret failed:", saveErr)
+		}
+	}
+	return secret, nil
 }

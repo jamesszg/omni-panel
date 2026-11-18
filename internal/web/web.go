@@ -23,6 +23,7 @@ import (
 	"github.com/jamesszg/omni-panel/internal/eventbus"
 	"github.com/jamesszg/omni-panel/internal/logger"
 	"github.com/jamesszg/omni-panel/internal/mtproto"
+	"github.com/jamesszg/omni-panel/internal/singbox"
 	"github.com/jamesszg/omni-panel/internal/tuic"
 	"github.com/jamesszg/omni-panel/internal/util/common"
 	"github.com/jamesszg/omni-panel/internal/util/cronspec"
@@ -306,6 +307,7 @@ const (
 	cadenceMtproto       = "@every 10s"
 	cadenceAmneziaWG     = "@every 10s"
 	cadenceTuic          = "@every 10s"
+	cadenceSingbox       = "@every 10s"
 	cadenceClientIPScan  = "@every 10s"
 	cadenceNodeHeartbeat = "@every 5s"
 	cadenceNodeTraffic   = "@every 5s"
@@ -355,6 +357,10 @@ func (s *Server) startTask(restartXray bool, loc *time.Location) {
 	tuicJob := job.NewTuicJob()
 	_, _ = s.cron.AddJob(cadenceTuic, tuicJob)
 	go tuicJob.Run()
+
+	singboxJob := job.NewSingboxJob()
+	_, _ = s.cron.AddJob(cadenceSingbox, singboxJob)
+	go singboxJob.Run()
 
 	// check client ips from log file every 10 sec
 	_, _ = s.cron.AddJob(cadenceClientIPScan, job.NewCheckClientIpJob())
@@ -804,6 +810,7 @@ func (s *Server) stop(stopXray bool, stopTgBot bool) error {
 			err2 = err
 		}
 		mtproto.GetManager().StopAll()
+		singbox.GetManager().StopAll()
 		amneziawgnet.GetManager().StopAll()
 		job.NewAmneziaWGJob().FlushKernelTraffic()
 		amneziawgkern.GetManager().StopAll()

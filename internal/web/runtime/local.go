@@ -65,6 +65,12 @@ func (l *Local) withAPI(fn func(api *xray.XrayAPI) error) error {
 }
 
 func (l *Local) AddInbound(_ context.Context, ib *model.Inbound) error {
+	if ib.EffectiveCore() == "singbox" {
+		if l.deps.RequestReconcile != nil {
+			l.deps.RequestReconcile()
+		}
+		return nil
+	}
 	if ib.Protocol == model.MTProto {
 		inst, ok := mtproto.InstanceFromInbound(ib)
 		if !ok {
@@ -109,6 +115,12 @@ func (l *Local) AddInbound(_ context.Context, ib *model.Inbound) error {
 }
 
 func (l *Local) DelInbound(_ context.Context, ib *model.Inbound) error {
+	if ib.EffectiveCore() == "singbox" {
+		if l.deps.RequestReconcile != nil {
+			l.deps.RequestReconcile()
+		}
+		return nil
+	}
 	if ib.Protocol == model.MTProto {
 		mtproto.GetManager().Remove(ib.Id)
 		return nil
@@ -136,6 +148,21 @@ func (l *Local) DelInbound(_ context.Context, ib *model.Inbound) error {
 }
 
 func (l *Local) UpdateInbound(ctx context.Context, oldIb, newIb *model.Inbound) error {
+	if oldIb.EffectiveCore() == "singbox" || newIb.EffectiveCore() == "singbox" {
+		if oldIb.EffectiveCore() != "singbox" {
+			_ = l.DelInbound(ctx, oldIb)
+		}
+		if newIb.EffectiveCore() != "singbox" {
+			if !newIb.Enable {
+				return nil
+			}
+			return l.AddInbound(ctx, newIb)
+		}
+		if l.deps.RequestReconcile != nil {
+			l.deps.RequestReconcile()
+		}
+		return nil
+	}
 	if oldIb.Protocol == model.MTProto || newIb.Protocol == model.MTProto {
 		return l.updateMtprotoInbound(ctx, oldIb, newIb)
 	}
@@ -274,6 +301,12 @@ func (l *Local) updateTuicInbound(ctx context.Context, oldIb, newIb *model.Inbou
 }
 
 func (l *Local) AddUser(_ context.Context, ib *model.Inbound, userMap map[string]any) error {
+	if ib.EffectiveCore() == "singbox" {
+		if l.deps.RequestReconcile != nil {
+			l.deps.RequestReconcile()
+		}
+		return nil
+	}
 	if ib.Protocol == model.TUIC {
 		if l.deps.RequestReconcile != nil {
 			l.deps.RequestReconcile()
@@ -289,6 +322,12 @@ func (l *Local) AddUser(_ context.Context, ib *model.Inbound, userMap map[string
 }
 
 func (l *Local) RemoveUser(_ context.Context, ib *model.Inbound, email string) error {
+	if ib.EffectiveCore() == "singbox" {
+		if l.deps.RequestReconcile != nil {
+			l.deps.RequestReconcile()
+		}
+		return nil
+	}
 	if ib.Protocol == model.TUIC {
 		if l.deps.RequestReconcile != nil {
 			l.deps.RequestReconcile()

@@ -116,7 +116,7 @@ func (s *InboundService) applyTrafficMutationBatch(b *trafficMutationBatch) bool
 			s.applyLocalAmneziaWG(plan.inbound.Id)
 			continue
 		}
-		if plan.inbound.Protocol == model.TUIC {
+		if plan.inbound.Protocol == model.TUIC && plan.inbound.EffectiveCore() != "singbox" {
 			s.applyLocalTuic(plan.inbound.Id)
 			continue
 		}

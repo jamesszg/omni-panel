@@ -658,6 +658,9 @@ func (s *InboundService) normalizeStreamSettings(inbound *model.Inbound) {
 		model.WireGuard:   true,
 		model.Tunnel:      true,
 		model.MASQUE:      true,
+		model.AnyTLS:      true,
+		model.ShadowTLS:   true,
+		model.TUIC:        inbound.EffectiveCore() == "singbox",
 	}
 
 	if !protocolsWithStream[inbound.Protocol] {
@@ -781,6 +784,27 @@ func validateInboundTLSCertificates(streamSettings string) error {
 		return common.NewError("TLS requires a server certificate and private key. Configure an encipherment or issue certificate before saving the inbound.")
 	}
 	return nil
+}
+
+func validateInboundTLSCertificatesForInbound(inbound *model.Inbound) error {
+	if inbound == nil {
+		return nil
+	}
+	if inbound.EffectiveCore() == "singbox" && strings.TrimSpace(inbound.StreamSettings) != "" {
+		var stream struct {
+			Security    string `json:"security"`
+			TLSSettings struct {
+				Certificates []json.RawMessage `json:"certificates"`
+			} `json:"tlsSettings"`
+		}
+		if json.Unmarshal([]byte(inbound.StreamSettings), &stream) == nil &&
+			strings.EqualFold(stream.Security, "tls") &&
+			len(stream.TLSSettings.Certificates) == 0 {
+			// sing-box auto-provisions/falls back to self-signed or gateway ACME certs when empty.
+			return nil
+		}
+	}
+	return validateInboundTLSCertificates(inbound.StreamSettings)
 }
 
 // finalMaskRealityTcpMasks returns the stream's finalmask.tcp masks when the
@@ -1308,7 +1332,7 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 	// Normalize streamSettings based on protocol
 	s.normalizeStreamSettings(inbound)
 	if !s.FromNodeSync {
-		if err := validateInboundTLSCertificates(inbound.StreamSettings); err != nil {
+		if err := validateInboundTLSCertificatesForInbound(inbound); err != nil {
 			return inbound, false, err
 		}
 	} else if err := validatePushedInbound(inbound, nil); err != nil {
@@ -1430,8 +1454,8 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 	// Secure client ID
 	for _, client := range clients {
 		switch inbound.Protocol {
-		case "trojan", "masque":
-			if client.Password == "" {
+		case "trojan", "masque", "anytls", "shadowtls":
+			if client.Password == "" && client.ID == "" {
 				return inbound, false, common.NewError("empty client ID")
 			}
 		case "shadowsocks":
@@ -1516,7 +1540,7 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 				return aErr
 			}
 		}
-		if inbound.NodeID == nil && inbound.Protocol == model.TUIC {
+		if inbound.NodeID == nil && inbound.Protocol == model.TUIC && inbound.EffectiveCore() != "singbox" {
 			if self := tuicSocksSelfConflict(inbound, inbound.Id); self != "" {
 				return common.NewError(self)
 			}
@@ -1591,7 +1615,7 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 					payload, bErr := s.buildInboundForLocalRuntime(tx, inbound)
 					if bErr != nil {
 						logger.Debug("Unable to prepare runtime inbound config:", bErr)
-						if inbound.Protocol != model.MTProto && inbound.Protocol != model.TUIC {
+						if inbound.Protocol != model.MTProto && inbound.Protocol != model.TUIC && inbound.EffectiveCore() != "singbox" {
 							needRestart = true
 						}
 					} else {
@@ -1600,7 +1624,7 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 								logger.Debug("New inbound added on", rt.Name(), ":", inbound.Tag)
 							} else {
 								logger.Debug("Unable to add inbound on", rt.Name(), ":", err1)
-								if inbound.Protocol != model.MTProto && inbound.Protocol != model.TUIC {
+								if inbound.Protocol != model.MTProto && inbound.Protocol != model.TUIC && inbound.EffectiveCore() != "singbox" {
 									needRestart = true
 								}
 							}
@@ -2083,8 +2107,8 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	// Grandfather a row that was already stored incomplete so it stays editable;
 	// only a save that breaks a previously valid TLS block is refused.
 	if !s.FromNodeSync {
-		if err := validateInboundTLSCertificates(inbound.StreamSettings); err != nil {
-			if validateInboundTLSCertificates(oldInbound.StreamSettings) == nil {
+		if err := validateInboundTLSCertificatesForInbound(inbound); err != nil {
+			if validateInboundTLSCertificatesForInbound(oldInbound) == nil {
 				return inbound, false, err
 			}
 		}
@@ -2101,6 +2125,8 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	// overwritten with the new values further down, then ensure a routed
 	// inbound keeps a stable egress port (reusing the one already stored).
 	oldProtocol := oldInbound.Protocol
+	oldRawCore := oldInbound.Core
+	oldEffectiveCore := oldInbound.EffectiveCore()
 	oldRoutedMtproto := mtprotoRoutesThroughXray(oldInbound)
 	if err := s.normalizeMtprotoXrayPort(inbound, oldInbound.Settings); err != nil {
 		return inbound, false, err
@@ -2242,6 +2268,13 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 		oldInbound.Port = inbound.Port
 		oldInbound.Protocol = inbound.Protocol
 		oldInbound.DisableFlow = inbound.DisableFlow
+		oldInbound.Core = inbound.Core
+		oldInbound.GatewayMode = inbound.GatewayMode
+		oldInbound.GatewaySNI = inbound.GatewaySNI
+		oldInbound.GatewayPath = inbound.GatewayPath
+		oldInbound.PublicPort = inbound.PublicPort
+		oldInbound.TemplateId = inbound.TemplateId
+		oldInbound.ConfigOverride = inbound.ConfigOverride
 		oldInbound.Settings = inbound.Settings
 		oldInbound.StreamSettings = inbound.StreamSettings
 		oldInbound.Sniffing = inbound.Sniffing
@@ -2276,10 +2309,11 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 			}
 			if !push {
 				needRestart = true
-			} else if servedOutsideXray(oldProtocol) || servedOutsideXray(oldInbound.Protocol) {
+			} else if servedOutsideXray(oldProtocol) || oldEffectiveCore == "singbox" || servedOutsideXrayInbound(oldInbound) {
 				oldSnapshot := *oldInbound
 				oldSnapshot.Tag = tag
 				oldSnapshot.Protocol = oldProtocol
+				oldSnapshot.Core = oldRawCore
 				payload := oldInbound
 				pushable := true
 				if inbound.Enable {
@@ -2290,7 +2324,7 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 						pushable = false
 					}
 				}
-				newProtocolIsSidecar := servedOutsideXray(oldInbound.Protocol)
+				newProtocolIsSidecar := servedOutsideXrayInbound(oldInbound)
 				if pushable {
 					postCommitApply = func() {
 						if err2 := rt.UpdateInbound(context.Background(), &oldSnapshot, payload); err2 == nil {
@@ -2403,6 +2437,13 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 // reconfigures in place where a Del+Add would drop every live session.
 func servedOutsideXray(protocol model.Protocol) bool {
 	return protocol == model.MTProto || protocol == model.TUIC || protocol == model.AmneziaWG
+}
+
+func servedOutsideXrayInbound(inbound *model.Inbound) bool {
+	if inbound == nil {
+		return false
+	}
+	return servedOutsideXray(inbound.Protocol) || inbound.EffectiveCore() == "singbox"
 }
 
 // applyInboundUserOps reports whether per-user core ops moved running to next, so

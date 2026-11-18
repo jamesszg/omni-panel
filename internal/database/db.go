@@ -114,6 +114,33 @@ func migrateInboundExcludeFromSubColumn() error {
 	return migrator.AddColumn(&model.Inbound{}, "ExcludeFromSub")
 }
 
+func migrateInboundOmniColumns() error {
+	migrator := db.Migrator()
+	if !migrator.HasTable(&model.Inbound{}) {
+		return nil
+	}
+	cols := []struct {
+		dbName    string
+		fieldName string
+	}{
+		{"core", "Core"},
+		{"gateway_mode", "GatewayMode"},
+		{"gateway_sni", "GatewaySNI"},
+		{"gateway_path", "GatewayPath"},
+		{"public_port", "PublicPort"},
+		{"template_id", "TemplateId"},
+		{"config_override", "ConfigOverride"},
+	}
+	for _, col := range cols {
+		if !migrator.HasColumn(&model.Inbound{}, col.dbName) {
+			if err := migrator.AddColumn(&model.Inbound{}, col.fieldName); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func migrateClientKeepAliveRangeColumn() error {
 	migrator := db.Migrator()
 	if !migrator.HasTable(&model.ClientRecord{}) || migrator.HasColumn(&model.ClientRecord{}, "wg_keep_alive_range") {
@@ -133,6 +160,9 @@ func initModels() error {
 		return err
 	}
 	if err := migrateInboundExcludeFromSubColumn(); err != nil {
+		return err
+	}
+	if err := migrateInboundOmniColumns(); err != nil {
 		return err
 	}
 	models := allModels()

@@ -29,7 +29,7 @@ func inboundTransports(protocol model.Protocol, streamSettings, settings string)
 	switch protocol {
 	case model.Hysteria, model.WireGuard, model.AmneziaWG, model.TUIC:
 		return transportUDP
-	case model.MTProto:
+	case model.MTProto, model.AnyTLS, model.ShadowTLS:
 		return transportTCP
 	case model.MASQUE:
 		return masqueTransports(streamSettings)
@@ -357,7 +357,7 @@ func checkPortConflictTx(db *gorm.DB, inbound *model.Inbound, ignoreId int) (*po
 		forwardedBy.Transports = newBits
 		return forwardedBy, nil
 	}
-	if inbound.NodeID == nil && inbound.Protocol == model.TUIC && ignoreId > 0 {
+	if inbound.NodeID == nil && inbound.Protocol == model.TUIC && inbound.EffectiveCore() != "singbox" && ignoreId > 0 {
 		if self := tuicSocksSelfConflict(inbound, ignoreId); self != "" {
 			return nil, common.NewError(self)
 		}
@@ -578,6 +578,9 @@ func checkTuicSocksConflict(db *gorm.DB, inbound *model.Inbound, ignoreId int, n
 		return nil, err
 	}
 	for _, c := range candidates {
+		if c.EffectiveCore() == "singbox" {
+			continue
+		}
 		if _, ok := tuic.InstanceFromInbound(c); !ok {
 			continue
 		}
@@ -605,6 +608,9 @@ func checkTuicSocksRelayCollision(db *gorm.DB, id int) (*portConflictDetail, err
 		return nil, err
 	}
 	for _, c := range candidates {
+		if c.EffectiveCore() == "singbox" {
+			continue
+		}
 		if tuic.SOCKSPortForInbound(c.Id) != relayPort {
 			continue
 		}

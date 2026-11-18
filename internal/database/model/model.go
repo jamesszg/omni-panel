@@ -39,6 +39,8 @@ const (
 	AmneziaWG   Protocol = "amneziawg"
 	TUIC        Protocol = "tuic"
 	MASQUE      Protocol = "masque"
+	AnyTLS      Protocol = "anytls"
+	ShadowTLS   Protocol = "shadowtls"
 )
 
 // User represents a user account in the 3x-ui panel.
@@ -69,7 +71,7 @@ type Inbound struct {
 	// Xray configuration fields
 	Listen            string   `json:"listen" form:"listen"`
 	Port              int      `json:"port" form:"port" validate:"gte=0,lte=65535" example:"443"`
-	Protocol          Protocol `json:"protocol" form:"protocol" validate:"required,oneof=vmess vless trojan shadowsocks wireguard hysteria http mixed tunnel tun mtproto amneziawg tuic masque" example:"vless"`
+	Protocol          Protocol `json:"protocol" form:"protocol" validate:"required,oneof=vmess vless trojan shadowsocks wireguard hysteria http mixed tunnel tun mtproto amneziawg tuic masque anytls shadowtls" example:"vless"`
 	Settings          string   `json:"settings" form:"settings"`
 	StreamSettings    string   `json:"streamSettings" form:"streamSettings"`
 	Tag               string   `json:"tag" form:"tag" gorm:"unique" example:"in-443-tcp"`
@@ -79,6 +81,14 @@ type Inbound struct {
 	ShareAddr         string   `json:"shareAddr" form:"shareAddr" gorm:"column:share_addr"`
 
 	DisableFlow bool `json:"disableFlow" form:"disableFlow" gorm:"column:disable_flow;default:false" example:"false"`
+
+	Core           string `json:"core,omitempty" form:"core" gorm:"column:core;default:xray" example:"xray"`
+	GatewayMode    string `json:"gatewayMode,omitempty" form:"gatewayMode" gorm:"column:gateway_mode;default:direct" example:"direct"`
+	GatewaySNI     string `json:"gatewaySni,omitempty" form:"gatewaySni" gorm:"column:gateway_sni"`
+	GatewayPath    string `json:"gatewayPath,omitempty" form:"gatewayPath" gorm:"column:gateway_path"`
+	PublicPort     int    `json:"publicPort,omitempty" form:"publicPort" gorm:"column:public_port;default:0"`
+	TemplateId     string `json:"templateId,omitempty" form:"templateId" gorm:"column:template_id"`
+	ConfigOverride string `json:"configOverride,omitempty" form:"configOverride" gorm:"column:config_override"`
 
 	// OriginNodeGuid is the panelGuid of the node that physically hosts this
 	// inbound, propagated up across hops (#4983). Empty for an inbound that
@@ -406,6 +416,27 @@ func (i *Inbound) GenXrayInboundConfig() *xray.InboundConfig {
 		Tag:            i.Tag,
 		Sniffing:       json_util.RawMessage(i.Sniffing),
 	}
+}
+
+// EffectiveCore returns the normalized core engine name ("singbox" or "xray").
+// Protocols exclusive to sing-box (AnyTLS, ShadowTLS) always resolve to "singbox".
+// Explicit Core values of "singbox" or "sing-box" resolve to "singbox", while empty
+// Core resolves to "xray" to preserve legacy unit-test and row compatibility.
+func (i *Inbound) EffectiveCore() string {
+	if i == nil {
+		return "xray"
+	}
+	c := strings.ToLower(strings.TrimSpace(i.Core))
+	if c == "sing-box" || c == "singbox" {
+		return "singbox"
+	}
+	if i.Protocol == AnyTLS || i.Protocol == ShadowTLS {
+		return "singbox"
+	}
+	if c != "" {
+		return c
+	}
+	return "xray"
 }
 
 func StripVmessClientSecurity(settings string) (string, bool) {
