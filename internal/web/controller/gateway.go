@@ -8,6 +8,7 @@ import (
 	"github.com/jamesszg/omni-panel/internal/database/model"
 	"github.com/jamesszg/omni-panel/internal/template"
 	"github.com/jamesszg/omni-panel/internal/web/service"
+	"github.com/jamesszg/omni-panel/internal/web/session"
 )
 
 // GatewayController exposes the :443 L4/L7 gateway status, built-in template
@@ -59,6 +60,9 @@ func (c *GatewayController) bootstrapStack(ctx *gin.Context) {
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		jsonMsg(ctx, "bootstrap gateway", err)
 		return
+	}
+	if user := session.GetLoginUser(ctx); user != nil && user.Id > 0 {
+		req.UserId = user.Id
 	}
 	res, err := c.gatewayService.Bootstrap443Stack(resolveHost(ctx), req)
 	if err != nil {

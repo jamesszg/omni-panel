@@ -83,7 +83,9 @@ TEMPLATES_JSON=$(curl -fsSk -b "${COOKIE_JAR}" "${OMNI_URL}/panel/api/gateway/te
 printf '%s' "${TEMPLATES_JSON}" | grep -q 'singbox-hysteria2-443'
 
 EXISTING_INBOUNDS=$(curl -fsSk -b "${COOKIE_JAR}" "${OMNI_URL}/panel/api/inbounds/list" || true)
-if printf '%s' "${EXISTING_INBOUNDS}" | grep -q 'singbox-hysteria2-443'; then
+PRE_STATUS=$(curl -fsSk -b "${COOKIE_JAR}" "${OMNI_URL}/panel/api/gateway/status" || true)
+if printf '%s' "${EXISTING_INBOUNDS}" | grep -q 'singbox-hysteria2-443' ||
+   printf '%s' "${PRE_STATUS}" | grep -q '"quicCount":1'; then
     echo "Preset inbound singbox-hysteria2-443 already present; skipping duplicate bootstrap."
 else
     BOOTSTRAP_PAYLOAD=$(cat <<JSON
@@ -104,7 +106,10 @@ JSON
         -H "X-CSRF-Token: ${AUTH_CSRF_TOKEN}" \
         -H "Content-Type: application/json" \
         -d "${BOOTSTRAP_PAYLOAD}" "${OMNI_URL}/panel/api/gateway/bootstrap")
-    echo "${BOOTSTRAP_RESP}" | grep -q '"success":true'
+    if ! printf '%s' "${BOOTSTRAP_RESP}" | grep -q '"success":true'; then
+        echo "ERROR: gateway bootstrap failed: ${BOOTSTRAP_RESP}" >&2
+        exit 1
+    fi
 fi
 
 echo "[5/6] Waiting for live sing-box + L4/L7 :443 gateway reconciliation..."

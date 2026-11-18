@@ -48,6 +48,21 @@ func TestBootstrap443StackAndValidate(t *testing.T) {
 	if res.SubID == "" || res.SubURL == "" {
 		t.Fatalf("expected non-empty SubID and SubURL, got %+v", res)
 	}
+	allInbounds, err := (&InboundService{}).GetInbounds(1)
+	if err != nil || len(allInbounds) != 3 {
+		t.Fatalf("expected GetInbounds(1) to return 3 user-owned inbounds, got len=%d err=%v", len(allInbounds), err)
+	}
+	// Calling Bootstrap443Stack a second time must succeed idempotently.
+	res2, err := gwSvc.Bootstrap443Stack("edge.example.com", BootstrapRequest{
+		Domain:      "edge.example.com",
+		PublicPort:  443,
+		RealitySNI:  "www.microsoft.com",
+		RealityDest: "www.microsoft.com:443",
+		ClientEmail: "wizarduser",
+	})
+	if err != nil || len(res2.Inbounds) != 3 {
+		t.Fatalf("repeated Bootstrap443Stack failed: err=%v res=%+v", err, res2)
+	}
 
 	// Verify status reflects gatewayEnable=true and domain.
 	status, err := gwSvc.GetStatus()

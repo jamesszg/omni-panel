@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/jamesszg/omni-panel/internal/database"
 	"github.com/jamesszg/omni-panel/internal/database/model"
 	"github.com/jamesszg/omni-panel/internal/gateway"
 	"github.com/jamesszg/omni-panel/internal/singbox"
@@ -55,6 +56,7 @@ type BootstrapRequest struct {
 	AcmeEmail       string   `json:"acmeEmail"`
 	AcmeCfToken     string   `json:"acmeCfApiToken"`
 	SpeedtestEnable *bool    `json:"speedtestEnable"`
+	UserId          int      `json:"-"`
 }
 
 // BootstrapCreatedInbound summarizes an inbound created by Bootstrap443Stack.
@@ -252,14 +254,32 @@ func (s *GatewayService) Bootstrap443Stack(host string, req BootstrapRequest) (*
 		baseEmail = "omni-" + random.NumLower(4)
 	}
 
+	userId := req.UserId
+	if userId <= 0 {
+		var firstUser model.User
+		if uErr := database.GetDB().Model(&model.User{}).Order("id ASC").First(&firstUser).Error; uErr == nil && firstUser.Id > 0 {
+			userId = firstUser.Id
+		}
+	}
+	if userId <= 0 {
+		userId = 1
+	}
+	_ = database.GetDB().Model(&model.Inbound{}).Where("user_id = 0").Update("user_id", userId).Error
+
 	existing, err := s.inboundService.GetAllInbounds()
 	if err != nil {
 		return nil, err
 	}
+	byTemplateID := make(map[string]*model.Inbound, len(existing))
 	usedPorts := make(map[int]bool, len(existing))
 	existingQuicCount := 0
 	for _, ib := range existing {
 		usedPorts[ib.Port] = true
+		if ib.NodeID == nil && strings.TrimSpace(ib.TemplateId) != "" {
+			if _, exists := byTemplateID[ib.TemplateId]; !exists {
+				byTemplateID[ib.TemplateId] = ib
+			}
+		}
 		if ib.Enable && ib.NodeID == nil &&
 			(ib.Protocol == model.Hysteria || ib.Protocol == model.TUIC || ib.Protocol == model.MASQUE) &&
 			(ib.GatewayMode == "rpxy_quic" || ib.PublicPort == pubPort || ib.Port == pubPort) {
@@ -268,6 +288,9 @@ func (s *GatewayService) Bootstrap443Stack(host string, req BootstrapRequest) (*
 	}
 	newQuicCount := 0
 	for _, pid := range presets {
+		if _, exists := byTemplateID[pid]; exists {
+			continue
+		}
 		if spec, ok := template.FindTemplate(pid); ok && spec.GatewayMode == "rpxy_quic" {
 			newQuicCount++
 		}
@@ -290,6 +313,22 @@ func (s *GatewayService) Bootstrap443Stack(host string, req BootstrapRequest) (*
 	var needXrayRestart bool
 
 	for idx, pid := range presets {
+		if existingMatch, exists := byTemplateID[pid]; exists {
+			bundles, _ := s.GetClientShareBundles(host, existingMatch.Id, "")
+			created = append(created, BootstrapCreatedInbound{
+				Id:          existingMatch.Id,
+				Tag:         existingMatch.Tag,
+				Remark:      existingMatch.Remark,
+				Core:        existingMatch.EffectiveCore(),
+				Protocol:    string(existingMatch.Protocol),
+				Port:        existingMatch.Port,
+				PublicPort:  existingMatch.PublicPort,
+				GatewayMode: existingMatch.GatewayMode,
+				TemplateId:  existingMatch.TemplateId,
+				Bundles:     bundles,
+			})
+			continue
+		}
 		spec, ok := template.FindTemplate(pid)
 		if !ok {
 			return nil, fmt.Errorf("unknown preset template %q", pid)
@@ -323,6 +362,7 @@ func (s *GatewayService) Bootstrap443Stack(host string, req BootstrapRequest) (*
 		if err != nil {
 			return nil, err
 		}
+		ib.UserId = userId
 
 		allNow, _ := s.inboundService.GetAllInbounds()
 		warnings, err := template.ValidateInboundConstraints(ib, allNow, domain)
