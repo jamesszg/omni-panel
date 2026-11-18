@@ -360,6 +360,9 @@ func (s *SubService) configuredPublicHost() string {
 	if d, err := s.settingService.GetWebDomain(); err == nil && d != "" {
 		return d
 	}
+	if d, err := s.settingService.GetGatewayDomain(); err == nil && d != "" {
+		return d
+	}
 	return ""
 }
 
@@ -843,7 +846,7 @@ func (s *SubService) loadInboundsBySubId(subId string) ([]*model.Inbound, error)
 		JOIN client_inbounds ON client_inbounds.inbound_id = inbounds.id
 		JOIN clients ON clients.id = client_inbounds.client_id
 		WHERE
-			inbounds.protocol in ('vmess','vless','trojan','shadowsocks','hysteria','wireguard','amneziawg','mtproto','tuic','masque')
+			inbounds.protocol in ('vmess','vless','trojan','shadowsocks','hysteria','wireguard','amneziawg','mtproto','tuic','masque','anytls','shadowtls')
 			AND clients.sub_id = ? AND inbounds.enable = ?
 	)`, subId, true).Order("sub_sort_index ASC").Order("id ASC")
 	if cached {
@@ -930,6 +933,9 @@ func (s *SubService) projectThroughFallbackMaster(inbound *model.Inbound) bool {
 	if inbound == nil {
 		return false
 	}
+	if s.projectThroughGateway(inbound) {
+		return true
+	}
 	if !listenIsInternalOnly(inbound.Listen) {
 		return false
 	}
@@ -958,6 +964,63 @@ func (s *SubService) projectThroughFallbackMaster(inbound *model.Inbound) bool {
 	inbound.StreamSettings = mergeStreamFromMaster(inbound.StreamSettings, master.StreamSettings)
 	inbound.Listen = master.Listen
 	inbound.Port = master.Port
+	return true
+}
+
+// projectThroughGateway rewrites loopback/gateway-fronted inbounds so share links
+// and subscriptions advertise the unified public :443 endpoint and external TLS settings.
+func (s *SubService) projectThroughGateway(inbound *model.Inbound) bool {
+	if inbound == nil {
+		return false
+	}
+	isGatewayMode := inbound.GatewayMode == "rpxy_sni" ||
+		inbound.GatewayMode == "rpxy_quic" ||
+		inbound.GatewayMode == "l7_path"
+	if !isGatewayMode && inbound.PublicPort <= 0 {
+		return false
+	}
+	pubPort := inbound.PublicPort
+	if pubPort <= 0 {
+		pubPort, _ = s.settingService.GetGatewayPublicPort()
+	}
+	if pubPort <= 0 {
+		pubPort = 443
+	}
+	inbound.Port = pubPort
+	if listenIsInternalOnly(inbound.Listen) {
+		inbound.Listen = ""
+	}
+	gwDomain, _ := s.settingService.GetGatewayDomain()
+	sni := strings.TrimSpace(inbound.GatewaySNI)
+	if sni == "" {
+		sni = gwDomain
+	}
+	if inbound.GatewayMode == "l7_path" {
+		var stream map[string]any
+		_ = json.Unmarshal([]byte(inbound.StreamSettings), &stream)
+		if stream == nil {
+			stream = map[string]any{}
+		}
+		stream["security"] = "tls"
+		tlsObj, _ := stream["tlsSettings"].(map[string]any)
+		if tlsObj == nil {
+			tlsObj = map[string]any{}
+		}
+		if sni != "" {
+			tlsObj["serverName"] = sni
+		}
+		netType, _ := stream["network"].(string)
+		switch netType {
+		case "ws", "httpupgrade":
+			tlsObj["alpn"] = []any{"http/1.1"}
+		case "grpc", "xhttp":
+			tlsObj["alpn"] = []any{"h2"}
+		}
+		stream["tlsSettings"] = tlsObj
+		if out, err := json.MarshalIndent(stream, "", "  "); err == nil {
+			inbound.StreamSettings = string(out)
+		}
+	}
 	return true
 }
 
@@ -1022,8 +1085,70 @@ func (s *SubService) GetLink(inbound *model.Inbound, email string) string {
 		return s.genAmneziaWGLink(inbound, email)
 	case "tuic":
 		return s.genTuicLink(inbound, email)
+	case "anytls":
+		return s.genAnytlsLink(inbound, email)
+	case "shadowtls":
+		return s.genShadowtlsLink(inbound, email)
 	}
 	return ""
+}
+
+func (s *SubService) genAnytlsLink(inbound *model.Inbound, email string) string {
+	if inbound.Protocol != model.AnyTLS {
+		return ""
+	}
+	client, ok := s.clientForLink(inbound, email)
+	if !ok {
+		return ""
+	}
+	pw := client.Password
+	if pw == "" {
+		pw = client.ID
+	}
+	if pw == "" {
+		return ""
+	}
+	stream := unmarshalStreamSettings(inbound.StreamSettings)
+	params := map[string]string{}
+	applyShareTLSParams(stream, params)
+	if params["sni"] == "" && inbound.GatewaySNI != "" {
+		params["sni"] = inbound.GatewaySNI
+	}
+	address := s.resolveInboundAddress(inbound)
+	link := fmt.Sprintf("anytls://%s@%s", encodeUserinfo(pw), joinHostPort(address, inbound.Port))
+	return buildLinkWithParams(link, params, s.genRemark(inbound, email, "", "tcp"))
+}
+
+func (s *SubService) genShadowtlsLink(inbound *model.Inbound, email string) string {
+	if inbound.Protocol != model.ShadowTLS {
+		return ""
+	}
+	client, ok := s.clientForLink(inbound, email)
+	if !ok {
+		return ""
+	}
+	pw := client.Password
+	if pw == "" {
+		pw = client.ID
+	}
+	if pw == "" {
+		return ""
+	}
+	settings := s.linkSettings(inbound)
+	sni, _ := settings["handshakeServer"].(string)
+	if sni == "" {
+		sni = inbound.GatewaySNI
+	}
+	params := map[string]string{
+		"security": "tls",
+		"version":  "3",
+	}
+	if sni != "" {
+		params["sni"] = sni
+	}
+	address := s.resolveInboundAddress(inbound)
+	link := fmt.Sprintf("shadowtls://%s@%s", encodeUserinfo(pw), joinHostPort(address, inbound.Port))
+	return buildLinkWithParams(link, params, s.genRemark(inbound, email, "", "tcp"))
 }
 
 func (s *SubService) genTuicLink(inbound *model.Inbound, email string) string {
@@ -1031,6 +1156,45 @@ func (s *SubService) genTuicLink(inbound *model.Inbound, email string) string {
 		return ""
 	}
 	inst := s.tuicInstanceForLink(inbound)
+	if inst == nil && inbound.EffectiveCore() == "singbox" {
+		client, ok := s.clientForLink(inbound, email)
+		if !ok {
+			return ""
+		}
+		uid := client.ID
+		pw := client.Password
+		if uid == "" || pw == "" {
+			return ""
+		}
+		stream := unmarshalStreamSettings(inbound.StreamSettings)
+		params := map[string]string{
+			"congestion_control": "bbr",
+			"alpn":               "h3",
+			"allow_insecure":     "0",
+		}
+		if tlsObj, ok := stream["tlsSettings"].(map[string]any); ok {
+			if sni, _ := tlsObj["serverName"].(string); sni != "" {
+				params["sni"] = sni
+			}
+			if alpnArr, ok2 := tlsObj["alpn"].([]any); ok2 && len(alpnArr) > 0 {
+				alpns := make([]string, 0, len(alpnArr))
+				for _, a := range alpnArr {
+					if str, ok3 := a.(string); ok3 && str != "" {
+						alpns = append(alpns, str)
+					}
+				}
+				if len(alpns) > 0 {
+					params["alpn"] = strings.Join(alpns, ",")
+				}
+			}
+		}
+		if params["sni"] == "" && inbound.GatewaySNI != "" {
+			params["sni"] = inbound.GatewaySNI
+		}
+		host := s.resolveInboundAddress(inbound)
+		link := fmt.Sprintf("tuic://%s:%s@%s", encodeUserinfo(uid), encodeUserinfo(pw), joinHostPort(host, inbound.Port))
+		return buildLinkWithParams(link, params, s.genRemark(inbound, email, "", ""))
+	}
 	if inst == nil {
 		return ""
 	}

@@ -21,6 +21,7 @@ import (
 	"github.com/jamesszg/omni-panel/internal/database/model"
 	"github.com/jamesszg/omni-panel/internal/logger"
 	"github.com/jamesszg/omni-panel/internal/mtproto"
+	"github.com/jamesszg/omni-panel/internal/template"
 	"github.com/jamesszg/omni-panel/internal/tuic"
 	"github.com/jamesszg/omni-panel/internal/util/common"
 	"github.com/jamesszg/omni-panel/internal/util/maskcompat"
@@ -1365,6 +1366,9 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 	if err := validateTunWfpBlockLeak(string(inbound.Protocol), inbound.Settings); err != nil {
 		return inbound, false, err
 	}
+	if err := s.validateTemplateAndGatewayConstraints(inbound); err != nil {
+		return inbound, false, err
+	}
 	s.normalizeMtprotoSecret(inbound)
 	if err := s.normalizeMtprotoXrayPort(inbound, ""); err != nil {
 		return inbound, false, err
@@ -2073,6 +2077,9 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	if err := validateTunWfpBlockLeak(string(inbound.Protocol), inbound.Settings); err != nil {
 		return inbound, false, err
 	}
+	if err := s.validateTemplateAndGatewayConstraints(inbound); err != nil {
+		return inbound, false, err
+	}
 	s.normalizeMtprotoSecret(inbound)
 
 	oldInbound, err := s.GetInbound(inbound.Id)
@@ -2089,6 +2096,9 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 		return inbound, false, err
 	}
 	if err := s.normalizeAmneziaWGSettings(inbound, oldInbound); err != nil {
+		return inbound, false, err
+	}
+	if err := s.validateTemplateAndGatewayConstraints(inbound); err != nil {
 		return inbound, false, err
 	}
 	inbound.SubSortIndex = normalizeSubSortIndex(inbound.SubSortIndex)
@@ -2444,6 +2454,29 @@ func servedOutsideXrayInbound(inbound *model.Inbound) bool {
 		return false
 	}
 	return servedOutsideXray(inbound.Protocol) || inbound.EffectiveCore() == "singbox"
+}
+
+func (s *InboundService) validateTemplateAndGatewayConstraints(inbound *model.Inbound) error {
+	if s.FromNodeSync || inbound == nil || inbound.NodeID != nil {
+		return nil
+	}
+	hasGatewayOrSingbox := inbound.EffectiveCore() == "singbox" ||
+		strings.TrimSpace(inbound.TemplateId) != "" ||
+		strings.TrimSpace(inbound.ConfigOverride) != "" ||
+		(inbound.GatewayMode != "" && inbound.GatewayMode != "direct")
+	if !hasGatewayOrSingbox {
+		return nil
+	}
+	var existing []*model.Inbound
+	if err := database.GetDB().Model(&model.Inbound{}).Where("node_id IS NULL").Find(&existing).Error; err != nil {
+		return err
+	}
+	gwDomain, _ := (&SettingService{}).GetGatewayDomain()
+	_, err := template.ValidateInboundConstraints(inbound, existing, gwDomain)
+	if err != nil {
+		return common.NewError(err.Error())
+	}
+	return nil
 }
 
 // applyInboundUserOps reports whether per-user core ops moved running to next, so
