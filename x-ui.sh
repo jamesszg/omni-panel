@@ -129,7 +129,7 @@ before_show_menu() {
 }
 
 install() {
-    bash <(curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/main/install.sh)
+    bash <(curl -Ls https://raw.githubusercontent.com/jamesszg/omni-panel/main/install.sh)
     if [[ $? == 0 ]]; then
         if [[ $# == 0 ]]; then
             start
@@ -148,7 +148,7 @@ update() {
         fi
         return 0
     fi
-    bash <(curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/main/update.sh)
+    bash <(curl -Ls https://raw.githubusercontent.com/jamesszg/omni-panel/main/update.sh)
     if [[ $? == 0 ]]; then
         LOGI "Update is complete, Panel has automatically restarted "
         before_show_menu
@@ -166,7 +166,7 @@ update_dev() {
     fi
     # XUI_UPDATE_TAG tells update.sh to install the dev-latest pre-release
     # instead of the latest stable tag.
-    XUI_UPDATE_TAG="dev-latest" bash <(curl -Ls https://raw.githubusercontent.com/MHSanaei/3x-ui/main/update.sh)
+    XUI_UPDATE_TAG="dev-latest" bash <(curl -Ls https://raw.githubusercontent.com/jamesszg/omni-panel/main/update.sh)
     if [[ $? == 0 ]]; then
         LOGI "Dev update is complete, Panel has automatically restarted "
         before_show_menu
@@ -213,11 +213,11 @@ replace_xui_script() {
 installed_script_url() {
     local ver
     ver=$("${xui_folder}/x-ui" -v 2> /dev/null | tr -d '[:space:]')
-    if [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && curl -fsIL -o /dev/null "https://raw.githubusercontent.com/MHSanaei/3x-ui/v${ver}/x-ui.sh"; then
-        echo "https://raw.githubusercontent.com/MHSanaei/3x-ui/v${ver}/x-ui.sh"
+    if [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && curl -fsIL -o /dev/null "https://raw.githubusercontent.com/jamesszg/omni-panel/v${ver}/x-ui.sh"; then
+        echo "https://raw.githubusercontent.com/jamesszg/omni-panel/v${ver}/x-ui.sh"
     else
         echo -e "${yellow}No x-ui.sh published for the installed version (${ver:-unknown}), using main${plain}" >&2
-        echo "https://raw.githubusercontent.com/MHSanaei/3x-ui/main/x-ui.sh"
+        echo "https://raw.githubusercontent.com/jamesszg/omni-panel/main/x-ui.sh"
     fi
 }
 
@@ -251,7 +251,7 @@ legacy_version() {
         exit 1
     fi
     # Use the entered panel version in the download link
-    install_command="bash <(curl -Ls "https://raw.githubusercontent.com/mhsanaei/3x-ui/v$tag_version/install.sh") v$tag_version"
+    install_command="bash <(curl -Ls "https://raw.githubusercontent.com/jamesszg/omni-panel/v$tag_version/install.sh") v$tag_version"
 
     echo "Downloading and installing panel version $tag_version..."
     eval $install_command
@@ -322,7 +322,7 @@ uninstall() {
     echo ""
     echo -e "Uninstalled Successfully.\n"
     echo "If you need to install this panel again, you can use below command:"
-    echo -e "${green}bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)${plain}"
+    echo -e "${green}bash <(curl -Ls https://raw.githubusercontent.com/jamesszg/omni-panel/main/install.sh)${plain}"
     echo ""
     # Trap the SIGTERM signal
     trap delete_script SIGTERM
@@ -1035,195 +1035,20 @@ show_mtproto_status() {
     done
 }
 
-firewall_menu() {
-    echo -e "${green}\t1.${plain} ${green}Install${plain} Firewall"
-    echo -e "${green}\t2.${plain} Port List [numbered]"
-    echo -e "${green}\t3.${plain} ${green}Open${plain} Ports"
-    echo -e "${green}\t4.${plain} ${red}Delete${plain} Ports from List"
-    echo -e "${green}\t5.${plain} ${green}Enable${plain} Firewall"
-    echo -e "${green}\t6.${plain} ${red}Disable${plain} Firewall"
-    echo -e "${green}\t7.${plain} Firewall Status"
-    echo -e "${green}\t0.${plain} Back to Main Menu"
-    read -rp "Choose an option: " choice
-    case "$choice" in
-        0)
-            show_menu
-            ;;
-        1)
-            install_firewall
-            firewall_menu
-            ;;
-        2)
-            ufw status numbered
-            firewall_menu
-            ;;
-        3)
-            open_ports
-            firewall_menu
-            ;;
-        4)
-            delete_ports
-            firewall_menu
-            ;;
-        5)
-            ufw enable
-            firewall_menu
-            ;;
-        6)
-            ufw disable
-            firewall_menu
-            ;;
-        7)
-            ufw status verbose
-            firewall_menu
-            ;;
-        *)
-            echo -e "${red}Invalid option. Please select a valid number.${plain}\n"
-            firewall_menu
-            ;;
-    esac
-}
-
-install_firewall() {
-    if ! command -v ufw &> /dev/null; then
-        echo "ufw firewall is not installed. Installing now..."
-        apt-get update
-        apt-get install -y ufw
+gateway_menu() {
+    echo -e "${green}--- Omni-Panel Multi-Core & :443 Gateway Check ---${plain}"
+    if [[ -x "${xui_folder}/bin/sing-box" ]]; then
+        echo -e "${green}sing-box:${plain} $(${xui_folder}/bin/sing-box version 2>/dev/null | head -n1)"
     else
-        echo "ufw firewall is already installed"
+        echo -e "${yellow}sing-box: not found at ${xui_folder}/bin/sing-box${plain}"
     fi
-
-    # Check if the firewall is inactive
-    if ufw status | grep -q "Status: active"; then
-        echo "Firewall is already active"
+    if [[ -x "${xui_folder}/bin/rpxy-l4" ]]; then
+        echo -e "${green}rpxy-l4:${plain} installed at ${xui_folder}/bin/rpxy-l4"
     else
-        echo "Activating firewall..."
-        # Open the necessary ports
-        ufw allow ssh
-        ufw allow http
-        ufw allow https
-        ufw allow 2053/tcp #webPort
-        ufw allow 2096/tcp #subport
-
-        # Enable the firewall
-        ufw --force enable
+        echo -e "${yellow}rpxy-l4: not found at ${xui_folder}/bin/rpxy-l4${plain}"
     fi
-}
-
-open_ports() {
-    # Prompt the user to enter the ports they want to open
-    read -rp "Enter the ports you want to open (e.g. 80,443,2053 or range 400-500): " ports
-
-    # Check if the input is valid
-    if ! [[ $ports =~ ^([0-9]+|[0-9]+-[0-9]+)(,([0-9]+|[0-9]+-[0-9]+))*$ ]]; then
-        echo "Error: Invalid input. Please enter a comma-separated list of ports or a range of ports (e.g. 80,443,2053 or 400-500)." >&2
-        exit 1
-    fi
-
-    # Open the specified ports using ufw
-    IFS=',' read -ra PORT_LIST <<< "$ports"
-    for port in "${PORT_LIST[@]}"; do
-        if [[ $port == *-* ]]; then
-            # Split the range into start and end ports
-            start_port=$(echo $port | cut -d'-' -f1)
-            end_port=$(echo $port | cut -d'-' -f2)
-            # Open the port range
-            ufw allow $start_port:$end_port/tcp
-            ufw allow $start_port:$end_port/udp
-        else
-            # Open the single port
-            ufw allow "$port"
-        fi
-    done
-
-    # Confirm that the ports are opened
-    echo "Opened the specified ports:"
-    for port in "${PORT_LIST[@]}"; do
-        if [[ $port == *-* ]]; then
-            start_port=$(echo $port | cut -d'-' -f1)
-            end_port=$(echo $port | cut -d'-' -f2)
-            # Check if the port range has been successfully opened
-            (ufw status | grep -q "$start_port:$end_port") && echo "$start_port-$end_port"
-        else
-            # Check if the individual port has been successfully opened
-            (ufw status | grep -q "$port") && echo "$port"
-        fi
-    done
-}
-
-delete_ports() {
-    # Display current rules with numbers
-    echo "Current UFW rules:"
-    ufw status numbered
-
-    # Ask the user how they want to delete rules
-    echo "Do you want to delete rules by:"
-    echo "1) Rule numbers"
-    echo "2) Ports"
-    read -rp "Enter your choice (1 or 2): " choice
-
-    if [[ $choice -eq 1 ]]; then
-        # Deleting by rule numbers
-        read -rp "Enter the rule numbers you want to delete (1, 2, etc.): " rule_numbers
-
-        # Validate the input
-        if ! [[ $rule_numbers =~ ^([0-9]+)(,[0-9]+)*$ ]]; then
-            echo "Error: Invalid input. Please enter a comma-separated list of rule numbers." >&2
-            exit 1
-        fi
-
-        # Split numbers into an array
-        IFS=',' read -ra RULE_NUMBERS <<< "$rule_numbers"
-        for rule_number in "${RULE_NUMBERS[@]}"; do
-            # Delete the rule by number
-            ufw delete "$rule_number" || echo "Failed to delete rule number $rule_number"
-        done
-
-        echo "Selected rules have been deleted."
-
-    elif [[ $choice -eq 2 ]]; then
-        # Deleting by ports
-        read -rp "Enter the ports you want to delete (e.g. 80,443,2053 or range 400-500): " ports
-
-        # Validate the input
-        if ! [[ $ports =~ ^([0-9]+|[0-9]+-[0-9]+)(,([0-9]+|[0-9]+-[0-9]+))*$ ]]; then
-            echo "Error: Invalid input. Please enter a comma-separated list of ports or a range of ports (e.g. 80,443,2053 or 400-500)." >&2
-            exit 1
-        fi
-
-        # Split ports into an array
-        IFS=',' read -ra PORT_LIST <<< "$ports"
-        for port in "${PORT_LIST[@]}"; do
-            if [[ $port == *-* ]]; then
-                # Split the port range
-                start_port=$(echo $port | cut -d'-' -f1)
-                end_port=$(echo $port | cut -d'-' -f2)
-                # Delete the port range
-                ufw delete allow $start_port:$end_port/tcp
-                ufw delete allow $start_port:$end_port/udp
-            else
-                # Delete a single port
-                ufw delete allow "$port"
-            fi
-        done
-
-        # Confirmation of deletion
-        echo "Deleted the specified ports:"
-        for port in "${PORT_LIST[@]}"; do
-            if [[ $port == *-* ]]; then
-                start_port=$(echo $port | cut -d'-' -f1)
-                end_port=$(echo $port | cut -d'-' -f2)
-                # Check if the port range has been deleted
-                (ufw status | grep -q "$start_port:$end_port") || echo "$start_port-$end_port"
-            else
-                # Check if the individual port has been deleted
-                (ufw status | grep -q "$port") || echo "$port"
-            fi
-        done
-    else
-        echo "${red}Error:${plain} Invalid choice. Please enter 1 or 2." >&2
-        exit 1
-    fi
+    echo -e "${yellow}Note: omni-panel operates in zero-firewall mode; host firewall rules are not managed here.${plain}"
+    before_show_menu
 }
 
 update_all_geofiles() {
@@ -2275,129 +2100,7 @@ iplimit_main() {
 }
 
 setup_fail2ban_iplimit() {
-    # Honor the same toggle the panel uses (isFail2BanEnabled): enabled when the
-    # var is unset or exactly "true"; any other explicit value means the operator
-    # opted out, so do nothing rather than install a fail2ban the panel ignores.
-    if [[ -n "${XUI_ENABLE_FAIL2BAN+x}" && "${XUI_ENABLE_FAIL2BAN}" != "true" ]]; then
-        echo -e "${yellow}XUI_ENABLE_FAIL2BAN=${XUI_ENABLE_FAIL2BAN}, skipping Fail2ban setup.${plain}\n"
-        return 0
-    fi
-
-    if ! command -v fail2ban-client &> /dev/null; then
-        echo -e "${green}Fail2ban is not installed. Installing now...!${plain}\n"
-
-        # Install fail2ban together with nftables. Recent fail2ban packages
-        # default to `banaction = nftables-multiport` in /etc/fail2ban/jail.conf,
-        # but the `nftables` package isn't pulled in as a dependency on most
-        # minimal server images (Debian 12+, Ubuntu 24+, fresh RHEL-family).
-        # Without `nft` in PATH the default sshd jail fails to ban with
-        #   stderr: '/bin/sh: 1: nft: not found'
-        # even though our own 3x-ipl jail uses iptables. Bundling the binary
-        # at install time prevents that confusing log spam for new installs.
-        case "${release}" in
-            ubuntu)
-                apt-get update
-                if [[ "${os_version}" -ge 2400 ]]; then
-                    apt-get install python3-pip -y
-                    python3 -m pip install pyasynchat --break-system-packages
-                fi
-                apt-get install fail2ban nftables -y
-                ;;
-            debian)
-                apt-get update
-                if [ "$os_version" -ge 12 ]; then
-                    apt-get install -y python3-systemd
-                fi
-                apt-get install -y fail2ban nftables
-                ;;
-            armbian)
-                apt-get update && apt-get install fail2ban nftables -y
-                ;;
-            fedora | amzn | virtuozzo | rhel | almalinux | rocky | ol)
-                if [[ "${release}" != "fedora" ]] && ! dnf repolist enabled 2> /dev/null | grep -qiw epel; then
-                    dnf install -y epel-release \
-                        || dnf install -y "https://dl.fedoraproject.org/pub/epel/epel-release-latest-$(rpm -E %rhel).noarch.rpm" \
-                        || echo -e "${yellow}Could not enable the EPEL repository; fail2ban is only available from EPEL on this distro.${plain}"
-                fi
-                dnf makecache -y && dnf -y install fail2ban nftables
-                ;;
-            centos)
-                if [[ "${VERSION_ID}" =~ ^7 ]]; then
-                    yum makecache -y && yum install epel-release -y
-                    # On EL7 fail2ban pulls in firewalld, which is enabled on the
-                    # next boot and blocks every panel/inbound port. The IP Limit
-                    # jail uses raw iptables, so a firewalld that was not there
-                    # before is not needed: keep it from starting on reboot.
-                    rpm -q firewalld &> /dev/null && had_firewalld=1 || had_firewalld=0
-                    yum -y install fail2ban nftables
-                    if [[ "${had_firewalld}" == "0" ]] && rpm -q firewalld &> /dev/null; then
-                        systemctl disable firewalld 2> /dev/null
-                        echo -e "${yellow}firewalld was pulled in by fail2ban and has been disabled so it does not block your ports after a reboot.${plain}
-"
-                    fi
-                else
-                    dnf makecache -y && dnf -y install fail2ban nftables
-                fi
-                ;;
-            arch | manjaro | parch)
-                pacman -Sy --noconfirm fail2ban nftables
-                ;;
-            alpine)
-                apk add fail2ban nftables
-                ;;
-            *)
-                echo -e "${red}Unsupported operating system. Please check the script and install the necessary packages manually.${plain}\n"
-                return 1
-                ;;
-        esac
-
-        if ! command -v fail2ban-client &> /dev/null; then
-            echo -e "${red}Fail2ban installation failed.${plain}\n"
-            return 1
-        fi
-
-        echo -e "${green}Fail2ban installed successfully!${plain}\n"
-    else
-        echo -e "${yellow}Fail2ban is already installed.${plain}\n"
-    fi
-
-    echo -e "${green}Configuring IP Limit...${plain}\n"
-
-    # make sure there's no conflict for jail files
-    iplimit_remove_conflicts
-
-    # Check if log file exists
-    if ! test -f "${iplimit_banned_log_path}"; then
-        touch ${iplimit_banned_log_path}
-    fi
-
-    # Check if service log file exists so fail2ban won't return error
-    if ! test -f "${iplimit_log_path}"; then
-        touch ${iplimit_log_path}
-    fi
-
-    # Create the iplimit jail files
-    # we didn't pass the bantime here to use the default value
-    create_iplimit_jails
-
-    # Launching fail2ban
-    if [[ $release == "alpine" ]]; then
-        if [[ $(rc-service fail2ban status | grep -F 'status: started' -c) == 0 ]]; then
-            rc-service fail2ban start
-        else
-            rc-service fail2ban restart
-        fi
-        rc-update add fail2ban
-    else
-        if ! systemctl is-active --quiet fail2ban; then
-            systemctl start fail2ban
-        else
-            systemctl restart fail2ban
-        fi
-        systemctl enable fail2ban
-    fi
-
-    echo -e "${green}IP Limit installed and configured successfully!${plain}\n"
+    echo -e "${yellow}Zero-firewall policy active: fail2ban / packet-filter rule changes are disabled.${plain}\n"
     return 0
 }
 
@@ -2516,83 +2219,8 @@ show_banlog() {
 }
 
 create_iplimit_jails() {
-    # Use default bantime if not passed => 30 minutes
-    local bantime="${1:-30}"
-
-    # Uncomment 'allowipv6 = auto' in fail2ban.conf
-    sed -i 's/#allowipv6 = auto/allowipv6 = auto/g' /etc/fail2ban/fail2ban.conf
-
-    # Debian 12+ / Ubuntu 22.04+ log sshd to the journal only; a jail.d override
-    # survives package upgrades. Only the stock 'backend = auto' is overridden.
-    if [[ ( "${release}" == "debian" && ${os_version} -ge 12 ) || ( "${release}" == "ubuntu" && ${os_version} -ge 2200 ) ]] &&
-        sed -n '0,/action =/p' /etc/fail2ban/jail.conf | grep -q '^backend = auto'; then
-        cat << EOF > /etc/fail2ban/jail.d/3x-ipl-backend.conf
-[DEFAULT]
-backend = systemd
-EOF
-    fi
-
-    cat << EOF > /etc/fail2ban/jail.d/3x-ipl.conf
-[3x-ipl]
-enabled=true
-backend=auto
-filter=3x-ipl
-action=3x-ipl
-logpath=${iplimit_log_path}
-maxretry=1
-findtime=32
-bantime=${bantime}m
-EOF
-
-    cat << EOF > /etc/fail2ban/filter.d/3x-ipl.conf
-[Definition]
-datepattern = ^%%Y/%%m/%%d %%H:%%M:%%S
-failregex   = \[LIMIT_IP\]\s*Email\s*=\s*<F-USER>.+</F-USER>\s*\|\|\s*Disconnecting OLD IP\s*=\s*<ADDR>\s*\|\|\s*Timestamp\s*=\s*\d+
-ignoreregex =
-EOF
-
-    # Ports to exempt from the ban so an over-limit proxy client can never lock
-    # the administrator out of SSH or the panel. The ban still covers every other
-    # TCP and UDP port (including all Xray inbounds, e.g. UDP-based Hysteria2), so
-    # IP-limit keeps working for inbounds added later without regenerating these files.
-    local ssh_ports
-    ssh_ports=$(grep -oP '^[[:space:]]*Port[[:space:]]+\K[0-9]+' /etc/ssh/sshd_config 2>/dev/null | paste -sd, -)
-    [[ -z "${ssh_ports}" ]] && ssh_ports="22"
-    local panel_port
-    panel_port=$(${xui_folder}/x-ui setting -show true 2>/dev/null | grep -Eo 'port: .+' | awk '{print $2}')
-    local exempt_ports="${ssh_ports}"
-    [[ -n "${panel_port}" ]] && exempt_ports="${exempt_ports},${panel_port}"
-
-    cat << EOF > /etc/fail2ban/action.d/3x-ipl.conf
-[INCLUDES]
-before = iptables-allports.conf
-
-[Definition]
-actionstart = <iptables> -N f2b-<name>
-              <iptables> -A f2b-<name> -j <returntype>
-              <iptables> -I <chain> -j f2b-<name>
-
-actionstop = <iptables> -D <chain> -j f2b-<name>
-             <actionflush>
-             <iptables> -X f2b-<name>
-
-actioncheck = <iptables> -n -L <chain> | grep -q 'f2b-<name>[ \t]'
-
-actionban = <iptables> -I f2b-<name> 1 -s <ip> -p tcp -m multiport ! --dports <exemptports> -j <blocktype>
-            <iptables> -I f2b-<name> 1 -s <ip> -p udp -m multiport ! --dports <exemptports> -j <blocktype>
-            echo "\$(date +"%%Y/%%m/%%d %%H:%%M:%%S")   BAN   [Email] = <F-USER> [IP] = <ip> banned for <bantime> seconds." >> ${iplimit_banned_log_path}
-
-actionunban = <iptables> -D f2b-<name> -s <ip> -p tcp -m multiport ! --dports <exemptports> -j <blocktype>
-              <iptables> -D f2b-<name> -s <ip> -p udp -m multiport ! --dports <exemptports> -j <blocktype>
-              echo "\$(date +"%%Y/%%m/%%d %%H:%%M:%%S")   UNBAN   [Email] = <F-USER> [IP] = <ip> unbanned." >> ${iplimit_banned_log_path}
-
-[Init]
-name = default
-chain = INPUT
-exemptports = ${exempt_ports}
-EOF
-
-    echo -e "${green}Ip Limit jail files created with a bantime of ${bantime} minutes.${plain}"
+    echo -e "${yellow}Zero-firewall policy active: packet-filter jail rules are disabled.${plain}\n"
+    return 0
 }
 
 iplimit_remove_conflicts() {
@@ -3533,7 +3161,7 @@ show_menu() {
 │  ${green}20.${plain} SSL Certificate Management               │
 │  ${green}21.${plain} Cloudflare SSL Certificate               │
 │  ${green}22.${plain} IP Limit Management                      │
-│  ${green}23.${plain} Firewall Management                      │
+│  ${green}23.${plain} Gateway & Multi-Core Status              │
 │  ${green}24.${plain} SSH Port Forwarding Management           │
 │  ${green}25.${plain} PostgreSQL Management                    │
 │────────────────────────────────────────────────│
@@ -3616,7 +3244,7 @@ show_menu() {
             iplimit_main
             ;;
         23)
-            firewall_menu
+            gateway_menu
             ;;
         24)
             SSH_port_forwarding

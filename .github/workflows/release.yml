@@ -1,4 +1,4 @@
-name: Release 3X-UI
+name: Release Omni-Panel
 
 on:
   workflow_dispatch:
@@ -64,7 +64,7 @@ jobs:
           npm run build
         working-directory: frontend
 
-      - name: Build 3X-UI
+      - name: Build Omni-Panel
         run: |
           CURL_RETRY="--retry 5 --retry-all-errors --retry-delay 3"
           fetch() { wget -q --tries=5 --waitretry=10 --retry-on-http-error=429,500,502,503 "$@"; }
@@ -98,7 +98,7 @@ jobs:
           # stable releases stay unstamped so config.IsDevBuild() returns false.
           LDFLAGS="-w -s -linkmode external -extldflags '-static'"
           if [[ "$GITHUB_REF" != refs/tags/* ]]; then
-            LDFLAGS="$LDFLAGS -X github.com/mhsanaei/3x-ui/v3/internal/config.buildCommit=${GITHUB_SHA::8} -X github.com/mhsanaei/3x-ui/v3/internal/config.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            LDFLAGS="$LDFLAGS -X github.com/jamesszg/omni-panel/internal/config.buildCommit=${GITHUB_SHA::8} -X github.com/jamesszg/omni-panel/internal/config.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           fi
           go build -buildvcs=true -ldflags "$LDFLAGS" -o xui-release -v .
           file xui-release
@@ -171,6 +171,34 @@ jobs:
               rm -rf "${MTG_PKG}" "${MTG_PKG}.tar.gz"
               ;;
           esac
+
+          # Upstream SagerNet/sing-box (v1.14.4)
+          SINGBOX_VER="1.14.4"
+          SINGBOX_PKG="sing-box-${SINGBOX_VER}-linux-${{ matrix.platform }}"
+          if curl -sfLRO $CURL_RETRY "https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VER}/${SINGBOX_PKG}.tar.gz"; then
+            tar -xzf "${SINGBOX_PKG}.tar.gz"
+            mv "${SINGBOX_PKG}/sing-box" "sing-box"
+            chmod +x "sing-box"
+            rm -rf "${SINGBOX_PKG}" "${SINGBOX_PKG}.tar.gz"
+          fi
+
+          # Upstream junkurihara/rust-rpxy-l4 (0.2.5)
+          RPXY_VER="0.2.5"
+          RPXY_TARGET=""
+          case "${{ matrix.platform }}" in
+            amd64) RPXY_TARGET="x86_64-unknown-linux-musl" ;;
+            arm64) RPXY_TARGET="aarch64-unknown-linux-musl" ;;
+          esac
+          if [ -n "$RPXY_TARGET" ] && curl -sfLRO $CURL_RETRY "https://github.com/junkurihara/rust-rpxy-l4/releases/download/${RPXY_VER}/rpxy-l4-${RPXY_TARGET}.tar.gz"; then
+            mkdir -p rpxy-tmp
+            tar -xzf "rpxy-l4-${RPXY_TARGET}.tar.gz" -C rpxy-tmp
+            RPXY_BIN=$(find rpxy-tmp -type f -name 'rpxy-l4' | head -n1)
+            if [ -n "$RPXY_BIN" ]; then
+              mv "$RPXY_BIN" "rpxy-l4"
+              chmod +x "rpxy-l4"
+            fi
+            rm -rf rpxy-tmp "rpxy-l4-${RPXY_TARGET}.tar.gz"
+          fi
           cd ../..
 
       - name: Package
@@ -247,7 +275,7 @@ jobs:
             mingw-w64-x86_64-sqlite3
             mingw-w64-x86_64-pkg-config
 
-      - name: Build 3X-UI for Windows (CGO)
+      - name: Build Omni-Panel for Windows (CGO)
         shell: msys2 {0}
         run: |
           export PATH="/c/hostedtoolcache/windows/go/$(ls /c/hostedtoolcache/windows/go | sort -V | tail -n1)/x64/bin:$PATH"
@@ -269,7 +297,7 @@ jobs:
           # Stamp the commit into per-commit (dev channel) builds only.
           LDFLAGS="-w -s"
           if [[ "$GITHUB_REF" != refs/tags/* ]]; then
-            LDFLAGS="$LDFLAGS -X github.com/mhsanaei/3x-ui/v3/internal/config.buildCommit=${GITHUB_SHA:0:8} -X github.com/mhsanaei/3x-ui/v3/internal/config.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            LDFLAGS="$LDFLAGS -X github.com/jamesszg/omni-panel/internal/config.buildCommit=${GITHUB_SHA:0:8} -X github.com/jamesszg/omni-panel/internal/config.buildDate=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           fi
           go build -buildvcs=true -ldflags "$LDFLAGS" -o xui-release.exe -v .
 
@@ -307,6 +335,13 @@ jobs:
           Expand-Archive -Path "$MTG_PKG.zip" -DestinationPath "mtg-tmp" -Force
           Move-Item "mtg-tmp/$MTG_PKG/mtg-multi.exe" "mtg-windows-amd64.exe"
           Remove-Item -Recurse -Force "mtg-tmp", "$MTG_PKG.zip"
+
+          $SB_VER = "1.14.4"
+          $SB_PKG = "sing-box-$SB_VER-windows-amd64"
+          Invoke-WebRequest @retry -Uri "https://github.com/SagerNet/sing-box/releases/download/v$SB_VER/$SB_PKG.zip" -OutFile "$SB_PKG.zip"
+          Expand-Archive -Path "$SB_PKG.zip" -DestinationPath "sb-tmp" -Force
+          Move-Item "sb-tmp/$SB_PKG/sing-box.exe" "sing-box.exe"
+          Remove-Item -Recurse -Force "sb-tmp", "$SB_PKG.zip"
 
           cd ..
           Copy-Item -Path ..\windows_files\* -Destination . -Recurse

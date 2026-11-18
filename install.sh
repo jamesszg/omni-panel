@@ -1494,8 +1494,9 @@ EOF
 # Docker image already does. Non-fatal by design: a fail2ban failure must never
 # abort the panel install.
 setup_fail2ban() {
-    if [[ -n "${XUI_ENABLE_FAIL2BAN+x}" && "${XUI_ENABLE_FAIL2BAN}" != "true" ]]; then
-        echo -e "${yellow}XUI_ENABLE_FAIL2BAN=${XUI_ENABLE_FAIL2BAN}, skipping Fail2ban auto-setup.${plain}"
+    # Zero-firewall default: never modify host packet-filter rules unless explicitly opted in.
+    if [[ "${XUI_ENABLE_FAIL2BAN:-false}" != "true" ]]; then
+        echo -e "${yellow}XUI_ENABLE_FAIL2BAN is not enabled (zero-firewall default), skipping Fail2ban setup.${plain}"
         return 0
     fi
 
@@ -1728,13 +1729,13 @@ _install_xui_service_unit() {
 # fails with "Failed to fetch x-ui version"), and falls back to the API.
 resolve_latest_tag() {
     local url tag
-    url=$(curl -sSLI -o /dev/null -w '%{url_effective}' --retry 5 --retry-delay 3 --connect-timeout 15 --max-time 60 "https://github.com/MHSanaei/3x-ui/releases/latest" 2>/dev/null)
+    url=$(curl -sSLI -o /dev/null -w '%{url_effective}' --retry 5 --retry-delay 3 --connect-timeout 15 --max-time 60 "https://github.com/jamesszg/omni-panel/releases/latest" 2>/dev/null)
     tag=${url##*/tag/}
     if [[ "$tag" != "$url" && -n "$tag" && "$tag" != "latest" ]]; then
         echo "$tag"
         return 0
     fi
-    curl -Ls --retry 5 --retry-delay 3 --connect-timeout 15 --max-time 60 "https://api.github.com/repos/MHSanaei/3x-ui/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+    curl -Ls --retry 5 --retry-delay 3 --connect-timeout 15 --max-time 60 "https://api.github.com/repos/jamesszg/omni-panel/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
 }
 
 # Releases publish <asset>.sha256 next to each archive. A mismatch or a failed
@@ -1773,13 +1774,77 @@ require_repo_files() {
     shift
     [[ "${ref}" == "main" ]] && return 0
     for name in "$@"; do
-        status=$(curl -sIL --retry 3 --connect-timeout 15 -o /dev/null -w '%{http_code}' "https://raw.githubusercontent.com/MHSanaei/3x-ui/${ref}/${name}")
+        status=$(curl -sIL --retry 3 --connect-timeout 15 -o /dev/null -w '%{http_code}' "https://raw.githubusercontent.com/jamesszg/omni-panel/${ref}/${name}")
         if [[ "${status}" != "200" ]]; then
             echo -e "${red}${name} is not available for ${ref} (HTTP ${status})${plain}"
             echo -e "${red}Install a release that ships it, or 'dev' for the rolling build. Your existing installation has not been touched.${plain}"
             exit 1
         fi
     done
+}
+
+install_sing_box() {
+    local sb_ver="${OMNI_SINGBOX_VERSION:-1.14.4}"
+    local target_bin="${xui_folder}/bin/sing-box"
+    if [[ -x "${target_bin}" ]]; then
+        return 0
+    fi
+    mkdir -p "${xui_folder}/bin"
+    local sb_arch
+    sb_arch="$(arch)"
+    local pkg="sing-box-${sb_ver}-linux-${sb_arch}"
+    local tmp_dir="/tmp/omni-singbox-$$"
+    rm -rf "${tmp_dir}"
+    mkdir -p "${tmp_dir}"
+    echo -e "${green}Downloading upstream SagerNet/sing-box v${sb_ver} (${sb_arch})...${plain}"
+    if curl -fLR --retry 5 --retry-delay 3 --connect-timeout 15 -o "${tmp_dir}/${pkg}.tar.gz" "https://github.com/SagerNet/sing-box/releases/download/v${sb_ver}/${pkg}.tar.gz" &&
+        tar -xzf "${tmp_dir}/${pkg}.tar.gz" -C "${tmp_dir}" &&
+        [[ -f "${tmp_dir}/${pkg}/sing-box" ]]; then
+        mv -f "${tmp_dir}/${pkg}/sing-box" "${target_bin}"
+        chmod +x "${target_bin}"
+        echo -e "${green}Installed sing-box v${sb_ver} at ${target_bin}${plain}"
+    else
+        echo -e "${yellow}Warning: failed to download upstream sing-box v${sb_ver}; multi-core sing-box protocols require ${target_bin}.${plain}"
+    fi
+    rm -rf "${tmp_dir}"
+    return 0
+}
+
+install_rpxy_l4() {
+    local rpxy_ver="${OMNI_RPXY_L4_VERSION:-0.2.5}"
+    local target_bin="${xui_folder}/bin/rpxy-l4"
+    if [[ -x "${target_bin}" ]]; then
+        return 0
+    fi
+    mkdir -p "${xui_folder}/bin"
+    local rpxy_target=""
+    case "$(arch)" in
+        amd64) rpxy_target="x86_64-unknown-linux-musl" ;;
+        arm64) rpxy_target="aarch64-unknown-linux-musl" ;;
+        *)
+            echo -e "${yellow}Note: rust-rpxy-l4 does not publish prebuilt binaries for $(arch); skipping L4 mux install.${plain}"
+            return 0
+            ;;
+    esac
+    local pkg="rpxy-l4-${rpxy_target}.tar.gz"
+    local tmp_dir="/tmp/omni-rpxy-$$"
+    rm -rf "${tmp_dir}"
+    mkdir -p "${tmp_dir}"
+    echo -e "${green}Downloading upstream rust-rpxy-l4 ${rpxy_ver} (${rpxy_target})...${plain}"
+    if curl -fLR --retry 5 --retry-delay 3 --connect-timeout 15 -o "${tmp_dir}/${pkg}" "https://github.com/junkurihara/rust-rpxy-l4/releases/download/${rpxy_ver}/${pkg}" &&
+        tar -xzf "${tmp_dir}/${pkg}" -C "${tmp_dir}"; then
+        local found_bin
+        found_bin=$(find "${tmp_dir}" -type f -name 'rpxy-l4' | head -n1)
+        if [[ -n "${found_bin}" ]]; then
+            mv -f "${found_bin}" "${target_bin}"
+            chmod +x "${target_bin}"
+            echo -e "${green}Installed rpxy-l4 ${rpxy_ver} at ${target_bin}${plain}"
+        fi
+    else
+        echo -e "${yellow}Warning: failed to download rust-rpxy-l4 ${rpxy_ver}; unified :443 SNI/QUIC mux requires ${target_bin}.${plain}"
+    fi
+    rm -rf "${tmp_dir}"
+    return 0
 }
 
 install_x-ui() {
@@ -1793,9 +1858,9 @@ install_x-ui() {
             exit 1
         fi
         echo -e "Got x-ui latest version: ${tag_version}, beginning the installation..."
-        curl -fLR --retry 5 --retry-delay 3 --connect-timeout 15 --speed-limit 1 --speed-time 300 -o ${xui_folder}-linux-$(arch).tar.gz https://github.com/MHSanaei/3x-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz
+        curl -fLR --retry 5 --retry-delay 3 --connect-timeout 15 --speed-limit 1 --speed-time 300 -o ${xui_folder}-linux-$(arch).tar.gz https://github.com/jamesszg/omni-panel/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz
         if [[ $? -ne 0 ]]; then
-            echo -e "${red}Downloading x-ui failed, please be sure that your server can access GitHub ${plain}"
+            echo -e "${red}Downloading x-ui failed, please check if the version exists ${plain}"
             exit 1
         fi
         if [[ ! -s ${xui_folder}-linux-$(arch).tar.gz ]]; then
@@ -1803,7 +1868,7 @@ install_x-ui() {
             echo -e "${red}Downloaded x-ui release archive is empty${plain}"
             exit 1
         fi
-        verify_release_checksum "https://github.com/MHSanaei/3x-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz" "${xui_folder}-linux-$(arch).tar.gz"
+        verify_release_checksum "https://github.com/jamesszg/omni-panel/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz" "${xui_folder}-linux-$(arch).tar.gz"
     else
         tag_version=$1
         # The rolling dev channel ships under a fixed, non-semver tag that is
@@ -1822,7 +1887,7 @@ install_x-ui() {
             fi
         fi
 
-        url="https://github.com/MHSanaei/3x-ui/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz"
+        url="https://github.com/jamesszg/omni-panel/releases/download/${tag_version}/x-ui-linux-$(arch).tar.gz"
         echo -e "Beginning to install x-ui ${tag_version}"
         curl -fLR --retry 5 --retry-delay 3 --connect-timeout 15 --speed-limit 1 --speed-time 300 -o ${xui_folder}-linux-$(arch).tar.gz ${url}
         if [[ $? -ne 0 ]]; then
@@ -1849,7 +1914,7 @@ install_x-ui() {
     require_repo_files "${script_ref}" "${required_files[@]}"
     local xui_script_temp="/usr/bin/x-ui-temp.$$"
     rm -f "${xui_script_temp}"
-    curl -fLRo "${xui_script_temp}" "https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.sh"
+    curl -fLRo "${xui_script_temp}" "https://raw.githubusercontent.com/jamesszg/omni-panel/${script_ref}/x-ui.sh"
     if [[ $? -ne 0 ]]; then
         rm -f "${xui_script_temp}"
         echo -e "${red}Failed to download x-ui.sh${plain}"
@@ -1957,7 +2022,7 @@ install_x-ui() {
         while IFS= read -r -d '' f; do
             local rel="${f#"${custom_bin_backup}"/}"
             case "${rel}" in
-                config.json | mtproto | mtproto/* | tuic | tuic/* | tuic-server | tuic-server-*) continue ;;
+                config.json | mtproto | mtproto/* | singbox | singbox/* | gateway | gateway/* | tuic | tuic/* | tuic-server | tuic-server-*) continue ;;
             esac
             if [[ ! -e "bin/${rel}" ]]; then
                 mkdir -p "bin/$(dirname "${rel}")"
@@ -1985,6 +2050,8 @@ install_x-ui() {
     fi
     chmod +x /usr/bin/x-ui
     mkdir -p /var/log/x-ui
+    install_sing_box
+    install_rpxy_l4
     config_after_install
 
     # Etckeeper compatibility
@@ -2004,7 +2071,7 @@ install_x-ui() {
     if [[ $release == "alpine" ]]; then
         xui_rc_temp="/etc/init.d/x-ui.tmp.$$"
         rm -f "${xui_rc_temp}"
-        curl -fLRo "${xui_rc_temp}" "https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.rc"
+        curl -fLRo "${xui_rc_temp}" "https://raw.githubusercontent.com/jamesszg/omni-panel/${script_ref}/x-ui.rc"
         if [[ $? -ne 0 ]]; then
             rm -f "${xui_rc_temp}"
             echo -e "${red}Failed to download x-ui.rc${plain}"
@@ -2069,13 +2136,13 @@ install_x-ui() {
             echo -e "${yellow}Service files not found in tar.gz, downloading from GitHub...${plain}"
             case "${release}" in
                 ubuntu | debian | armbian)
-                    service_unit_url="https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.service.debian"
+                    service_unit_url="https://raw.githubusercontent.com/jamesszg/omni-panel/${script_ref}/x-ui.service.debian"
                     ;;
                 arch | manjaro | parch)
-                    service_unit_url="https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.service.arch"
+                    service_unit_url="https://raw.githubusercontent.com/jamesszg/omni-panel/${script_ref}/x-ui.service.arch"
                     ;;
                 *)
-                    service_unit_url="https://raw.githubusercontent.com/MHSanaei/3x-ui/${script_ref}/x-ui.service.rhel"
+                    service_unit_url="https://raw.githubusercontent.com/jamesszg/omni-panel/${script_ref}/x-ui.service.rhel"
                     ;;
             esac
 
