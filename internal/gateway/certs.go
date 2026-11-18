@@ -118,22 +118,21 @@ func (m *CertManager) getCertificate(hello *tls.ClientHelloInfo) (*tls.Certifica
 	acmeMgr := m.acmeMgr
 	m.mu.RUnlock()
 
-	if acmeMgr != nil && hello != nil {
-		isALPNChallenge := slices.Contains(hello.SupportedProtos, acme.ALPNProto)
-		if isALPNChallenge || (cfg.Domain != "" && strings.EqualFold(hello.ServerName, cfg.Domain)) {
-			if cert, err := acmeMgr.GetCertificate(hello); err == nil && cert != nil {
-				return cert, nil
-			} else if isALPNChallenge {
-				return nil, err
-			} else {
-				logger.Debugf("gateway: acme cert lookup for %q fell back to local cert: %v", hello.ServerName, err)
-			}
-		}
+	if acmeMgr != nil && hello != nil && slices.Contains(hello.SupportedProtos, acme.ALPNProto) {
+		return acmeMgr.GetCertificate(hello)
 	}
 
 	if exp != nil {
 		if hello == nil || hello.ServerName == "" || cfg.Domain == "" || strings.EqualFold(hello.ServerName, cfg.Domain) {
 			return exp, nil
+		}
+	}
+
+	if acmeMgr != nil && hello != nil && cfg.Domain != "" && strings.EqualFold(hello.ServerName, cfg.Domain) {
+		if cert, err := acmeMgr.GetCertificate(hello); err == nil && cert != nil {
+			return cert, nil
+		} else {
+			logger.Debugf("gateway: acme cert lookup for %q fell back to local cert: %v", hello.ServerName, err)
 		}
 	}
 

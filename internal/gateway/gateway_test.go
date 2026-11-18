@@ -2,12 +2,21 @@ package gateway
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -177,5 +186,75 @@ func TestL7ServerTLSProxyProtocolAndSpeedtestFallback(t *testing.T) {
 	}
 	if capturedClientIP != "198.51.100.42" {
 		t.Fatalf("X-Real-IP = %q, want 198.51.100.42", capturedClientIP)
+	}
+}
+
+func TestCertManagerExplicitCertTakesPrecedenceOverACME(t *testing.T) {
+	dir := t.TempDir()
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey failed: %v", err)
+	}
+	serial := big.NewInt(987654321)
+	tmpl := &x509.Certificate{
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: "cert.example.com"},
+		DNSNames:     []string{"cert.example.com"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("CreateCertificate failed: %v", err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(priv)
+	if err != nil {
+		t.Fatalf("MarshalECPrivateKey failed: %v", err)
+	}
+
+	certPath := filepath.Join(dir, "fullchain.pem")
+	keyPath := filepath.Join(dir, "privkey.pem")
+	if err := os.WriteFile(certPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
+		t.Fatalf("write cert: %v", err)
+	}
+	if err := os.WriteFile(keyPath, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), 0o600); err != nil {
+		t.Fatalf("write key: %v", err)
+	}
+
+	mgr, err := NewCertManager(filepath.Join(dir, "cache"), CertConfig{
+		Domain:    "cert.example.com",
+		CertFile:  certPath,
+		KeyFile:   keyPath,
+		AcmeMode:  "tls_alpn",
+		AcmeEmail: "ops@example.com",
+	})
+	if err != nil {
+		t.Fatalf("NewCertManager failed: %v", err)
+	}
+
+	cert, err := mgr.getCertificate(&tls.ClientHelloInfo{
+		ServerName:      "cert.example.com",
+		SupportedProtos: []string{"h2", "http/1.1"},
+	})
+	if err != nil || cert == nil || len(cert.Certificate) == 0 {
+		t.Fatalf("expected explicit cert for matching SNI, got cert=%v err=%v", cert, err)
+	}
+	leaf, err := x509.ParseCertificate(cert.Certificate[0])
+	if err != nil {
+		t.Fatalf("ParseCertificate failed: %v", err)
+	}
+	if leaf.SerialNumber.Cmp(serial) != 0 {
+		t.Fatalf("returned cert serial %v, want explicit cert serial %v", leaf.SerialNumber, serial)
+	}
+
+	fbCert, err := mgr.getCertificate(&tls.ClientHelloInfo{ServerName: "other.example.com"})
+	if err != nil || fbCert == nil || len(fbCert.Certificate) == 0 {
+		t.Fatalf("expected fallback cert for unrelated SNI, got cert=%v err=%v", fbCert, err)
+	}
+	fbLeaf, _ := x509.ParseCertificate(fbCert.Certificate[0])
+	if fbLeaf != nil && fbLeaf.SerialNumber.Cmp(serial) == 0 {
+		t.Fatalf("unrelated SNI must not receive domain explicit cert")
 	}
 }

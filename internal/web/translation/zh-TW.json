@@ -807,6 +807,7 @@
       "omni": {
         "acmeCfApiToken": "Cloudflare DNS API 權杖",
         "acmeEmail": "ACME 聯絡信箱",
+        "acmeExistingCert": "使用現有 x-ui 憑證",
         "acmeMode": "ACME 憑證模式",
         "addInitialClient": "新增初始用戶端",
         "authoritativeGatewayLinks": "閘道分享連結與 sing-box 用戶端設定",
@@ -816,6 +817,7 @@
         "coreAuto": "自動選擇（推薦）",
         "coreEngine": "底層核心",
         "domainRequired": "請輸入閘道網域",
+        "existingCertDetected": "已偵測到面板 / x-ui TLS 憑證",
         "gatewayDomain": "閘道網域",
         "gatewayMode": "閘道路由模式",
         "gatewayModeDirect": "直連連接埠（不經由 :443 閘道）",

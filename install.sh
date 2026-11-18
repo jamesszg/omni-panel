@@ -1735,7 +1735,15 @@ resolve_latest_tag() {
         echo "$tag"
         return 0
     fi
-    curl -Ls --retry 5 --retry-delay 3 --connect-timeout 15 --max-time 60 "https://api.github.com/repos/jamesszg/omni-panel/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
+    tag=$(curl -Ls --retry 5 --retry-delay 3 --connect-timeout 15 --max-time 60 "https://api.github.com/repos/jamesszg/omni-panel/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    if [[ -n "$tag" ]]; then
+        echo "$tag"
+        return 0
+    fi
+    if curl -fsSLI -o /dev/null --retry 3 --connect-timeout 10 "https://github.com/jamesszg/omni-panel/releases/tag/dev-latest" 2>/dev/null; then
+        echo "dev-latest"
+        return 0
+    fi
 }
 
 # Releases publish <asset>.sha256 next to each archive. A mismatch or a failed
@@ -1847,11 +1855,48 @@ install_rpxy_l4() {
     return 0
 }
 
+verify_local_checksum() {
+    local file="$1" sums="${1}.sha256" expected actual
+    if [[ ! -f "${sums}" ]]; then
+        echo -e "${yellow}No local .sha256 sidecar found next to $(basename "${file}"), skipping checksum verification${plain}"
+        return 0
+    fi
+    expected=$(awk 'NR == 1 {print $1}' "${sums}")
+    actual=$(sha256sum "${file}" | awk '{print $1}')
+    if [[ ! "${expected}" =~ ^[0-9a-f]{64}$ || "${expected}" != "${actual}" ]]; then
+        echo -e "${red}Checksum mismatch for $(basename "${file}"): expected ${expected:-<none>}, got ${actual}${plain}"
+        exit 1
+    fi
+    echo -e "${green}Local checksum verified: ${actual}${plain}"
+}
+
 install_x-ui() {
+    local caller_pwd local_archive="" using_local_archive=false
+    caller_pwd=$(pwd)
+    if [[ -n "${OMNI_LOCAL_ARCHIVE:-}" && -s "${OMNI_LOCAL_ARCHIVE}" ]]; then
+        local_archive="${OMNI_LOCAL_ARCHIVE}"
+    elif [[ -s "${caller_pwd}/x-ui-linux-$(arch).tar.gz" ]]; then
+        local_archive="${caller_pwd}/x-ui-linux-$(arch).tar.gz"
+    elif [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+        local script_dir_archive
+        script_dir_archive="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/x-ui-linux-$(arch).tar.gz"
+        [[ -s "${script_dir_archive}" ]] && local_archive="${script_dir_archive}"
+    fi
+    if [[ -n "${local_archive}" && "${local_archive}" != /* ]]; then
+        local_archive="$(cd "$(dirname "${local_archive}")" && pwd)/$(basename "${local_archive}")"
+    fi
+
     cd ${xui_folder%/x-ui}/
 
-    # Download resources
-    if [ $# == 0 ]; then
+    # Download resources (or reuse local release archive when provided)
+    if [[ -n "${local_archive}" ]]; then
+        using_local_archive=true
+        tag_version="${1:-local}"
+        [[ "$tag_version" == "dev" ]] && tag_version="dev-latest"
+        echo -e "${green}Using local x-ui archive: ${local_archive}${plain}"
+        verify_local_checksum "${local_archive}"
+        cp -f "${local_archive}" "${xui_folder}-linux-$(arch).tar.gz"
+    elif [ $# == 0 ]; then
         tag_version=$(resolve_latest_tag)
         if [[ ! -n "$tag_version" ]]; then
             echo -e "${red}Failed to fetch x-ui version, it may be due to GitHub API restrictions, please try it later${plain}"
@@ -1904,26 +1949,41 @@ install_x-ui() {
     # x-ui.sh, x-ui.rc and the unit files must come from the same release as
     # the binary; only the rolling dev build tracks main.
     local script_ref="${tag_version}"
-    if [[ "${tag_version}" == "dev-latest" ]]; then
+    if [[ "${tag_version}" == "dev-latest" || "${tag_version}" == "local" ]]; then
         script_ref="main"
     fi
-    # The unit files are only fetched when the release tarball lacks them, so
-    # they are checked at that point instead of here.
-    local required_files=("x-ui.sh")
-    [[ $release == "alpine" ]] && required_files+=("x-ui.rc")
-    require_repo_files "${script_ref}" "${required_files[@]}"
     local xui_script_temp="/usr/bin/x-ui-temp.$$"
     rm -f "${xui_script_temp}"
-    curl -fLRo "${xui_script_temp}" "https://raw.githubusercontent.com/jamesszg/omni-panel/${script_ref}/x-ui.sh"
-    if [[ $? -ne 0 ]]; then
-        rm -f "${xui_script_temp}"
-        echo -e "${red}Failed to download x-ui.sh${plain}"
-        exit 1
+    local local_xui_sh=""
+    if [[ "${using_local_archive}" == "true" ]]; then
+        local archive_dir
+        archive_dir="$(dirname "${local_archive}")"
+        if [[ -s "${archive_dir}/x-ui.sh" ]]; then
+            cp -f "${archive_dir}/x-ui.sh" "${xui_script_temp}"
+            local_xui_sh="file"
+        elif tar -xOzf "${xui_folder}-linux-$(arch).tar.gz" x-ui/x-ui.sh > "${xui_script_temp}" 2>/dev/null && [[ -s "${xui_script_temp}" ]]; then
+            local_xui_sh="archive"
+        fi
     fi
-    if [[ ! -s "${xui_script_temp}" ]]; then
-        rm -f "${xui_script_temp}"
-        echo -e "${red}Downloaded x-ui.sh is empty${plain}"
-        exit 1
+
+    if [[ -z "${local_xui_sh}" ]]; then
+        # The unit files are only fetched when the release tarball lacks them, so
+        # they are checked at that point instead of here.
+        local required_files=("x-ui.sh")
+        [[ $release == "alpine" ]] && required_files+=("x-ui.rc")
+        require_repo_files "${script_ref}" "${required_files[@]}"
+
+        curl -fLRo "${xui_script_temp}" "https://raw.githubusercontent.com/jamesszg/omni-panel/${script_ref}/x-ui.sh"
+        if [[ $? -ne 0 ]]; then
+            rm -f "${xui_script_temp}"
+            echo -e "${red}Failed to download x-ui.sh${plain}"
+            exit 1
+        fi
+        if [[ ! -s "${xui_script_temp}" ]]; then
+            rm -f "${xui_script_temp}"
+            echo -e "${red}Downloaded x-ui.sh is empty${plain}"
+            exit 1
+        fi
     fi
 
     # Stop x-ui service and remove old resources
@@ -1999,6 +2059,8 @@ install_x-ui() {
         fi
     fi
     chmod +x x-ui bin/xray-linux-$(arch)
+    [[ -f bin/sing-box ]] && chmod +x bin/sing-box
+    [[ -f bin/rpxy-l4 ]] && chmod +x bin/rpxy-l4
     if [[ -f bin/mtg-linux-arm ]]; then
         chmod +x bin/mtg-linux-arm
     elif [[ -f bin/mtg-linux-$(arch) ]]; then

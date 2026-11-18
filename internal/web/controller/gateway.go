@@ -2,12 +2,15 @@ package controller
 
 import (
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/jamesszg/omni-panel/internal/database/model"
 	"github.com/jamesszg/omni-panel/internal/template"
 	"github.com/jamesszg/omni-panel/internal/web/service"
+	"github.com/jamesszg/omni-panel/internal/web/service/panel"
 	"github.com/jamesszg/omni-panel/internal/web/session"
 )
 
@@ -57,9 +60,16 @@ func (c *GatewayController) validateInbound(ctx *gin.Context) {
 
 func (c *GatewayController) bootstrapStack(ctx *gin.Context) {
 	var req service.BootstrapRequest
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		jsonMsg(ctx, "bootstrap gateway", err)
-		return
+	if strings.Contains(strings.ToLower(ctx.ContentType()), "json") {
+		if err := ctx.ShouldBindJSON(&req); err != nil {
+			jsonMsg(ctx, "bootstrap gateway", err)
+			return
+		}
+	} else {
+		if err := ctx.ShouldBind(&req); err != nil {
+			jsonMsg(ctx, "bootstrap gateway", err)
+			return
+		}
 	}
 	if user := session.GetLoginUser(ctx); user != nil && user.Id > 0 {
 		req.UserId = user.Id
@@ -68,6 +78,9 @@ func (c *GatewayController) bootstrapStack(ctx *gin.Context) {
 	if err != nil {
 		jsonMsg(ctx, "bootstrap gateway", err)
 		return
+	}
+	if res != nil && res.RestartPanelNeeded {
+		_ = (&panel.PanelService{}).RestartPanel(3 * time.Second)
 	}
 	jsonObj(ctx, res, nil)
 }

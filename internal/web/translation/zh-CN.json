@@ -807,6 +807,7 @@
       "omni": {
         "acmeCfApiToken": "Cloudflare DNS API 令牌",
         "acmeEmail": "ACME 联系邮箱",
+        "acmeExistingCert": "使用已有 x-ui 证书",
         "acmeMode": "ACME 证书模式",
         "addInitialClient": "添加初始客户端",
         "authoritativeGatewayLinks": "网关分享链接与 sing-box 客户端配置",
@@ -816,6 +817,7 @@
         "coreAuto": "自动匹配（推荐）",
         "coreEngine": "底层内核",
         "domainRequired": "请输入网关域名",
+        "existingCertDetected": "已检测到面板 / x-ui TLS 证书",
         "gatewayDomain": "网关域名",
         "gatewayMode": "网关路由模式",
         "gatewayModeDirect": "直连端口（不经过 :443 网关）",

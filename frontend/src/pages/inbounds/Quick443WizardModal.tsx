@@ -73,6 +73,27 @@ interface GatewayStatusView {
   acmeMode?: string;
   acmeEmail?: string;
   speedtestEnable?: boolean;
+  hasPanelCert?: boolean;
+  certFile?: string;
+}
+
+function mapBackendAcmeMode(mode?: string): string {
+  switch ((mode || '').trim().toLowerCase()) {
+    case 'tls_alpn':
+    case 'tls-alpn-01':
+      return 'tls-alpn-01';
+    case 'dns_cf':
+    case 'dns-01-cf':
+      return 'dns-01-cf';
+    case 'existing_cert':
+    case 'existing-cert':
+      return 'existing-cert';
+    case 'self_signed':
+    case 'self-signed':
+      return 'self-signed';
+    default:
+      return '';
+  }
 }
 
 export interface Quick443WizardModalProps {
@@ -100,6 +121,8 @@ export default function Quick443WizardModal({
   const [acmeMode, setAcmeMode] = useState('tls-alpn-01');
   const [acmeEmail, setAcmeEmail] = useState('');
   const [acmeCfApiToken, setAcmeCfApiToken] = useState('');
+  const [hasPanelCert, setHasPanelCert] = useState(false);
+  const [certFile, setCertFile] = useState('');
   const [speedtestEnable, setSpeedtestEnable] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<BootstrapResult | null>(null);
@@ -125,9 +148,17 @@ export default function Quick443WizardModal({
         }
         if (statusMsg?.success && statusMsg.obj && typeof statusMsg.obj === 'object') {
           const st = statusMsg.obj as GatewayStatusView;
+          const detectedCert = Boolean(st.hasPanelCert || st.certFile);
+          setHasPanelCert(detectedCert);
+          setCertFile(st.certFile || '');
           if (st.domain) setDomain((prev) => prev || st.domain || '');
           if (st.publicPort && st.publicPort > 0) setPublicPort(st.publicPort);
-          if (st.acmeMode) setAcmeMode(st.acmeMode);
+          const mappedMode = mapBackendAcmeMode(st.acmeMode);
+          if (detectedCert && (!mappedMode || mappedMode === 'tls-alpn-01')) {
+            setAcmeMode('existing-cert');
+          } else if (mappedMode) {
+            setAcmeMode(mappedMode);
+          }
           if (st.acmeEmail) setAcmeEmail((prev) => prev || st.acmeEmail || '');
           if (typeof st.speedtestEnable === 'boolean') setSpeedtestEnable(st.speedtestEnable);
         }
@@ -154,18 +185,22 @@ export default function Quick443WizardModal({
     }
     setSubmitting(true);
     try {
-      const msg = await HttpUtil.post('/panel/api/gateway/bootstrap', {
-        domain: domain.trim(),
-        publicPort: publicPort || 443,
-        presetIds,
-        realityDest: realityDest.trim() || 'www.microsoft.com:443',
-        realitySni: realitySni.trim() || 'www.microsoft.com',
-        clientEmail: clientEmail.trim(),
-        acmeMode,
-        acmeEmail: acmeEmail.trim(),
-        acmeCfApiToken: acmeCfApiToken.trim(),
-        speedtestEnable,
-      });
+      const msg = await HttpUtil.post(
+        '/panel/api/gateway/bootstrap',
+        {
+          domain: domain.trim(),
+          publicPort: publicPort || 443,
+          presetIds,
+          realityDest: realityDest.trim() || 'www.microsoft.com:443',
+          realitySni: realitySni.trim() || 'www.microsoft.com',
+          clientEmail: clientEmail.trim(),
+          acmeMode,
+          acmeEmail: acmeEmail.trim(),
+          acmeCfApiToken: acmeCfApiToken.trim(),
+          speedtestEnable,
+        },
+        { headers: { 'Content-Type': 'application/json' } },
+      );
       if (msg?.success && msg.obj) {
         setResult(msg.obj as BootstrapResult);
         messageApi.success(t('pages.inbounds.omni.bootstrapSuccess'));
@@ -212,6 +247,15 @@ export default function Quick443WizardModal({
       >
         {!result ? (
           <Form layout="vertical">
+            {hasPanelCert && certFile && (
+              <Alert
+                type="success"
+                showIcon
+                style={{ marginBottom: 16 }}
+                title={t('pages.inbounds.omni.existingCertDetected')}
+                description={<code>{certFile}</code>}
+              />
+            )}
             <Form.Item
               htmlFor={`${uid}-domain`}
               label={t('pages.inbounds.omni.gatewayDomain')}
@@ -238,12 +282,28 @@ export default function Quick443WizardModal({
               <Form.Item htmlFor={`${uid}-acme`} label={t('pages.inbounds.omni.acmeMode')}>
                 <Select
                   id={`${uid}-acme`}
-                  style={{ width: 180 }}
+                  style={{ width: 220 }}
                   value={acmeMode}
                   onChange={setAcmeMode}
                   options={[
+                    ...(hasPanelCert
+                      ? [
+                          {
+                            value: 'existing-cert',
+                            label: t('pages.inbounds.omni.acmeExistingCert'),
+                          },
+                        ]
+                      : []),
                     { value: 'tls-alpn-01', label: 'TLS-ALPN-01 (Auto)' },
                     { value: 'dns-01-cf', label: 'Cloudflare DNS-01' },
+                    ...(hasPanelCert
+                      ? []
+                      : [
+                          {
+                            value: 'existing-cert',
+                            label: t('pages.inbounds.omni.acmeExistingCert'),
+                          },
+                        ]),
                     { value: 'self-signed', label: 'Self-signed fallback' },
                   ]}
                 />
@@ -259,7 +319,7 @@ export default function Quick443WizardModal({
                 />
               </Form.Item>
             </Space>
-            {acmeMode !== 'self-signed' && (
+            {acmeMode !== 'self-signed' && acmeMode !== 'existing-cert' && (
               <Form.Item htmlFor={`${uid}-acme-email`} label={t('pages.inbounds.omni.acmeEmail')}>
                 <Input
                   id={`${uid}-acme-email`}

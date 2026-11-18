@@ -25,6 +25,26 @@ type InstantiateOptions struct {
 	PublicPort    int
 	Remark        string
 	ServerName    string
+	CertFile      string
+	KeyFile       string
+}
+
+func buildInboundTLS(serverName string, alpn []string, opts InstantiateOptions) map[string]any {
+	tls := map[string]any{
+		"serverName": serverName,
+		"alpn":       alpn,
+	}
+	if certFile := strings.TrimSpace(opts.CertFile); certFile != "" {
+		if keyFile := strings.TrimSpace(opts.KeyFile); keyFile != "" {
+			tls["certificates"] = []map[string]any{
+				{
+					"certificateFile": certFile,
+					"keyFile":         keyFile,
+				},
+			}
+		}
+	}
+	return tls
 }
 
 // InstantiateTemplate creates a ready-to-save model.Inbound and initial model.Client
@@ -97,12 +117,9 @@ func InstantiateTemplate(templateID string, opts InstantiateOptions) (*model.Inb
 			"clients": []model.Client{client},
 		})
 		ib.StreamSettings = mustJSON(map[string]any{
-			"network":  "hysteria",
-			"security": "tls",
-			"tlsSettings": map[string]any{
-				"serverName": serverName,
-				"alpn":       []string{"h3"},
-			},
+			"network":     "hysteria",
+			"security":    "tls",
+			"tlsSettings": buildInboundTLS(serverName, []string{"h3"}, opts),
 		})
 
 	case "singbox-tuic-v5-443":
@@ -117,12 +134,9 @@ func InstantiateTemplate(templateID string, opts InstantiateOptions) (*model.Inb
 			"clients":            []model.Client{client},
 		})
 		ib.StreamSettings = mustJSON(map[string]any{
-			"network":  "tcp",
-			"security": "tls",
-			"tlsSettings": map[string]any{
-				"serverName": ib.GatewaySNI,
-				"alpn":       []string{"h3"},
-			},
+			"network":     "tcp",
+			"security":    "tls",
+			"tlsSettings": buildInboundTLS(ib.GatewaySNI, []string{"h3"}, opts),
 		})
 
 	case "singbox-anytls-443":
@@ -141,12 +155,9 @@ func InstantiateTemplate(templateID string, opts InstantiateOptions) (*model.Inb
 			"clients": []model.Client{client},
 		})
 		ib.StreamSettings = mustJSON(map[string]any{
-			"network":  "tcp",
-			"security": "tls",
-			"tlsSettings": map[string]any{
-				"serverName": ib.GatewaySNI,
-				"alpn":       []string{"h2", "http/1.1"},
-			},
+			"network":     "tcp",
+			"security":    "tls",
+			"tlsSettings": buildInboundTLS(ib.GatewaySNI, []string{"h2", "http/1.1"}, opts),
 		})
 
 	case "singbox-vless-reality-443", "xray-vless-reality-vision-443":

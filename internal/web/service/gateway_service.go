@@ -1,8 +1,16 @@
 package service
 
 import (
+	"context"
+	"crypto/x509"
+	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"net"
 	"net/url"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/jamesszg/omni-panel/internal/database"
@@ -12,6 +20,8 @@ import (
 	"github.com/jamesszg/omni-panel/internal/template"
 	"github.com/jamesszg/omni-panel/internal/util/random"
 )
+
+var defaultCertSearchRoot = "/root/cert"
 
 // GatewayService coordinates the :443 L4/L7 gateway, built-in templates,
 // constraint validation, one-click stack bootstrap, and authoritative client links.
@@ -30,6 +40,8 @@ type GatewayStatusView struct {
 	AcmeMode        string                `json:"acmeMode"`
 	AcmeEmail       string                `json:"acmeEmail"`
 	HasAcmeCfToken  bool                  `json:"hasAcmeCfToken"`
+	HasPanelCert    bool                  `json:"hasPanelCert"`
+	CertFile        string                `json:"certFile,omitempty"`
 	SingboxRunning  bool                  `json:"singboxRunning"`
 	SingboxVersion  string                `json:"singboxVersion"`
 	SingboxError    string                `json:"singboxError,omitempty"`
@@ -45,18 +57,18 @@ type ValidateResult struct {
 
 // BootstrapRequest configures the one-click full-stack :443 setup wizard.
 type BootstrapRequest struct {
-	Domain          string   `json:"domain"`
-	PublicPort      int      `json:"publicPort"`
-	PresetIDs       []string `json:"presetIds"`
-	RealityDest     string   `json:"realityDest"`
-	RealitySNI      string   `json:"realitySni"`
-	ClientEmail     string   `json:"clientEmail"`
-	SubID           string   `json:"subId"`
-	AcmeMode        string   `json:"acmeMode"`
-	AcmeEmail       string   `json:"acmeEmail"`
-	AcmeCfToken     string   `json:"acmeCfApiToken"`
-	SpeedtestEnable *bool    `json:"speedtestEnable"`
-	UserId          int      `json:"-"`
+	Domain          string   `json:"domain" form:"domain"`
+	PublicPort      int      `json:"publicPort" form:"publicPort"`
+	PresetIDs       []string `json:"presetIds" form:"presetIds"`
+	RealityDest     string   `json:"realityDest" form:"realityDest"`
+	RealitySNI      string   `json:"realitySni" form:"realitySni"`
+	ClientEmail     string   `json:"clientEmail" form:"clientEmail"`
+	SubID           string   `json:"subId" form:"subId"`
+	AcmeMode        string   `json:"acmeMode" form:"acmeMode"`
+	AcmeEmail       string   `json:"acmeEmail" form:"acmeEmail"`
+	AcmeCfToken     string   `json:"acmeCfApiToken" form:"acmeCfApiToken"`
+	SpeedtestEnable *bool    `json:"speedtestEnable" form:"speedtestEnable"`
+	UserId          int      `json:"-" form:"-"`
 }
 
 // BootstrapCreatedInbound summarizes an inbound created by Bootstrap443Stack.
@@ -75,13 +87,14 @@ type BootstrapCreatedInbound struct {
 
 // BootstrapResult returns all created inbounds, share links, and subscription URI.
 type BootstrapResult struct {
-	Domain         string                    `json:"domain"`
-	PublicPort     int                       `json:"publicPort"`
-	SubID          string                    `json:"subId"`
-	SubURL         string                    `json:"subUrl"`
-	Inbounds       []BootstrapCreatedInbound `json:"inbounds"`
-	Warnings       []string                  `json:"warnings"`
-	GatewayRuntime gateway.RuntimeStatus     `json:"gatewayRuntime"`
+	Domain             string                    `json:"domain"`
+	PublicPort         int                       `json:"publicPort"`
+	SubID              string                    `json:"subId"`
+	SubURL             string                    `json:"subUrl"`
+	Inbounds           []BootstrapCreatedInbound `json:"inbounds"`
+	Warnings           []string                  `json:"warnings"`
+	GatewayRuntime     gateway.RuntimeStatus     `json:"gatewayRuntime"`
+	RestartPanelNeeded bool                      `json:"-"`
 }
 
 // GetStatus aggregates settings, sing-box health, and gateway topology.
@@ -112,6 +125,12 @@ func (s *GatewayService) GetStatus() (*GatewayStatusView, error) {
 		}
 	}
 
+	certFile, keyFile, detectedDomain := s.resolveExistingCert(domain)
+	hasPanelCert := certFile != "" && keyFile != ""
+	if strings.TrimSpace(domain) == "" && detectedDomain != "" {
+		domain = detectedDomain
+	}
+
 	return &GatewayStatusView{
 		GatewayEnable:   en,
 		PublicPort:      pubPort,
@@ -121,6 +140,8 @@ func (s *GatewayService) GetStatus() (*GatewayStatusView, error) {
 		AcmeMode:        acmeMode,
 		AcmeEmail:       acmeEmail,
 		HasAcmeCfToken:  strings.TrimSpace(cfTok) != "",
+		HasPanelCert:    hasPanelCert,
+		CertFile:        certFile,
 		SingboxRunning:  sbMgr.IsRunning(),
 		SingboxVersion:  sbMgr.Version(),
 		SingboxError:    sbMgr.LastError(),
@@ -205,9 +226,37 @@ func (s *GatewayService) Bootstrap443Stack(host string, req BootstrapRequest) (*
 	if req.SpeedtestEnable != nil {
 		speedtestEn = *req.SpeedtestEnable
 	}
-	acmeMode := strings.TrimSpace(req.AcmeMode)
+	allWarnings := make([]string, 0)
+	certFile, keyFile, _ := s.resolveExistingCert(domain)
+	if certFile != "" && keyFile != "" {
+		existingCert, _ := s.settingService.GetCertFile()
+		existingKey, _ := s.settingService.GetKeyFile()
+		if strings.TrimSpace(existingCert) == "" || strings.TrimSpace(existingKey) == "" {
+			_ = s.settingService.SetCertFile(certFile)
+			_ = s.settingService.SetKeyFile(keyFile)
+		}
+	}
+
+	acmeMode := normalizeAcmeMode(req.AcmeMode)
 	if acmeMode == "" {
-		acmeMode = "tls_alpn"
+		if certFile != "" && keyFile != "" {
+			acmeMode = "existing_cert"
+		} else {
+			acmeMode = "tls_alpn"
+		}
+	}
+
+	var restartPanelNeeded bool
+	if webPort, err := s.settingService.GetPort(); err == nil && webPort == pubPort {
+		relocated := pickRelocatedPort(2053, pubPort)
+		if err := s.settingService.SetPort(relocated); err != nil {
+			return nil, err
+		}
+		restartPanelNeeded = true
+		allWarnings = append(allWarnings, fmt.Sprintf("panel webPort %d conflicts with gateway publicPort %d; moved panel to 127.0.0.1:%d (restarting panel)", webPort, pubPort, relocated))
+	}
+	if subPort, err := s.settingService.GetSubPort(); err == nil && subPort == pubPort {
+		allWarnings = append(allWarnings, fmt.Sprintf("subscription port %d conflicts with gateway publicPort %d; consider changing subPort so :%d stays dedicated to the unified gateway", subPort, pubPort, pubPort))
 	}
 
 	if err := s.settingService.SetGatewayDomain(domain); err != nil {
@@ -309,11 +358,20 @@ func (s *GatewayService) Bootstrap443Stack(host string, req BootstrapRequest) (*
 	}
 
 	created := make([]BootstrapCreatedInbound, 0, len(presets))
-	allWarnings := make([]string, 0)
 	var needXrayRestart bool
 
 	for idx, pid := range presets {
 		if existingMatch, exists := byTemplateID[pid]; exists {
+			if ensureInboundTLSCert(existingMatch, certFile, keyFile, domain) {
+				if updated, xrayRestart, updErr := s.inboundService.UpdateInbound(existingMatch); updErr != nil {
+					allWarnings = append(allWarnings, fmt.Sprintf("update TLS cert on existing inbound %q failed: %v", existingMatch.Tag, updErr))
+				} else if updated != nil {
+					existingMatch = updated
+					if xrayRestart {
+						needXrayRestart = true
+					}
+				}
+			}
 			bundles, _ := s.GetClientShareBundles(host, existingMatch.Id, "")
 			created = append(created, BootstrapCreatedInbound{
 				Id:          existingMatch.Id,
@@ -358,6 +416,8 @@ func (s *GatewayService) Bootstrap443Stack(host string, req BootstrapRequest) (*
 			LoopbackPort:  loopPort,
 			PublicPort:    pubPort,
 			ServerName:    sniHint,
+			CertFile:      certFile,
+			KeyFile:       keyFile,
 		})
 		if err != nil {
 			return nil, err
@@ -406,13 +466,14 @@ func (s *GatewayService) Bootstrap443Stack(host string, req BootstrapRequest) (*
 	}
 
 	return &BootstrapResult{
-		Domain:         domain,
-		PublicPort:     pubPort,
-		SubID:          subID,
-		SubURL:         subURL,
-		Inbounds:       created,
-		Warnings:       allWarnings,
-		GatewayRuntime: gwRT,
+		Domain:             domain,
+		PublicPort:         pubPort,
+		SubID:              subID,
+		SubURL:             subURL,
+		Inbounds:           created,
+		Warnings:           allWarnings,
+		GatewayRuntime:     gwRT,
+		RestartPanelNeeded: restartPanelNeeded,
 	}, nil
 }
 
@@ -436,4 +497,202 @@ func (s *GatewayService) buildGatewaySubURL(host, domain string, pubPort int, su
 		u.Host = fmt.Sprintf("%s:%d", targetHost, pubPort)
 	}
 	return u.String()
+}
+
+func normalizeAcmeMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "":
+		return ""
+	case "tls-alpn-01", "tls_alpn":
+		return "tls_alpn"
+	case "dns-01-cf", "dns_cf":
+		return "dns_cf"
+	case "existing-cert", "existing_cert":
+		return "existing_cert"
+	case "self-signed", "self_signed":
+		return "self_signed"
+	default:
+		return strings.TrimSpace(mode)
+	}
+}
+
+func (s *GatewayService) resolveExistingCert(domain string) (certFile, keyFile, detectedDomain string) {
+	domain = strings.TrimSpace(domain)
+	if cleanDomain := sanitizeCertDirName(domain); cleanDomain != "" {
+		c := filepath.Join(defaultCertSearchRoot, cleanDomain, "fullchain.pem")
+		k := filepath.Join(defaultCertSearchRoot, cleanDomain, "privkey.pem")
+		if isNonEmptyFile(c) && isNonEmptyFile(k) {
+			return c, k, firstNonEmptyString(extractCertDomain(c), cleanDomain)
+		}
+	}
+
+	panelCert, _ := s.settingService.GetCertFile()
+	panelKey, _ := s.settingService.GetKeyFile()
+	panelCert = strings.TrimSpace(panelCert)
+	panelKey = strings.TrimSpace(panelKey)
+	if isNonEmptyFile(panelCert) && isNonEmptyFile(panelKey) {
+		certDom := extractCertDomain(panelCert)
+		if domain == "" || certDom == "" || strings.EqualFold(certDom, domain) || certMatchesDomain(panelCert, domain) {
+			return panelCert, panelKey, certDom
+		}
+	}
+
+	if domain == "" {
+		matches, _ := filepath.Glob(filepath.Join(defaultCertSearchRoot, "*", "fullchain.pem"))
+		sort.Strings(matches)
+		for _, c := range matches {
+			dir := filepath.Dir(c)
+			k := filepath.Join(dir, "privkey.pem")
+			if !isNonEmptyFile(c) || !isNonEmptyFile(k) {
+				continue
+			}
+			dirName := filepath.Base(dir)
+			d := extractCertDomain(c)
+			if d == "" && dirName != "" && dirName != "ip" {
+				d = dirName
+			}
+			return c, k, d
+		}
+	}
+
+	return "", "", ""
+}
+
+func sanitizeCertDirName(domain string) string {
+	d := strings.TrimSpace(domain)
+	if d == "" || d == "." || d == ".." || strings.ContainsAny(d, `/\`) {
+		return ""
+	}
+	return d
+}
+
+func parseFirstCert(certPath string) *x509.Certificate {
+	raw, err := os.ReadFile(certPath)
+	if err != nil {
+		return nil
+	}
+	for len(raw) > 0 {
+		var blk *pem.Block
+		blk, raw = pem.Decode(raw)
+		if blk == nil {
+			break
+		}
+		if blk.Type == "CERTIFICATE" {
+			if cert, err := x509.ParseCertificate(blk.Bytes); err == nil {
+				return cert
+			}
+		}
+	}
+	return nil
+}
+
+func extractCertDomain(certPath string) string {
+	cert := parseFirstCert(certPath)
+	if cert == nil {
+		return ""
+	}
+	for _, dns := range cert.DNSNames {
+		if trimmed := strings.TrimSpace(dns); trimmed != "" {
+			return trimmed
+		}
+	}
+	return strings.TrimSpace(cert.Subject.CommonName)
+}
+
+func certMatchesDomain(certPath, domain string) bool {
+	cert := parseFirstCert(certPath)
+	if cert == nil {
+		// Non-x509 test fixtures or custom certs: allow explicit panel cert if domain isn't parseable.
+		return true
+	}
+	return cert.VerifyHostname(domain) == nil
+}
+
+func isNonEmptyFile(path string) bool {
+	info, err := os.Stat(strings.TrimSpace(path))
+	return err == nil && !info.IsDir() && info.Size() > 0
+}
+
+func firstNonEmptyString(vals ...string) string {
+	for _, v := range vals {
+		if trimmed := strings.TrimSpace(v); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func ensureInboundTLSCert(ib *model.Inbound, certFile, keyFile, sniHint string) bool {
+	if ib == nil || strings.TrimSpace(certFile) == "" || strings.TrimSpace(keyFile) == "" {
+		return false
+	}
+	if ib.Protocol != model.Hysteria && ib.Protocol != model.TUIC && ib.Protocol != model.AnyTLS {
+		return false
+	}
+
+	stream := map[string]any{}
+	if strings.TrimSpace(ib.StreamSettings) != "" {
+		if err := json.Unmarshal([]byte(ib.StreamSettings), &stream); err != nil {
+			return false
+		}
+	}
+	tlsMap, _ := stream["tlsSettings"].(map[string]any)
+	if tlsMap == nil {
+		tlsMap = map[string]any{}
+	}
+	if certs, ok := tlsMap["certificates"].([]any); ok && len(certs) > 0 {
+		if first, ok := certs[0].(map[string]any); ok {
+			cf, _ := first["certificateFile"].(string)
+			kf, _ := first["keyFile"].(string)
+			if strings.TrimSpace(cf) != "" && strings.TrimSpace(kf) != "" {
+				return false
+			}
+		}
+	}
+
+	tlsMap["certificates"] = []map[string]any{
+		{
+			"certificateFile": certFile,
+			"keyFile":         keyFile,
+		},
+	}
+	if curSNI, _ := tlsMap["serverName"].(string); strings.TrimSpace(curSNI) == "" {
+		if sni := firstNonEmptyString(ib.GatewaySNI, sniHint); sni != "" {
+			tlsMap["serverName"] = sni
+		}
+	}
+	stream["tlsSettings"] = tlsMap
+	encoded, err := json.Marshal(stream)
+	if err != nil {
+		return false
+	}
+	ib.StreamSettings = string(encoded)
+	if strings.TrimSpace(ib.GatewaySNI) == "" && strings.TrimSpace(sniHint) != "" {
+		ib.GatewaySNI = strings.TrimSpace(sniHint)
+	}
+	return true
+}
+
+func pickRelocatedPort(preferred int, conflictPorts ...int) int {
+	conflicts := make(map[int]bool, len(conflictPorts))
+	for _, p := range conflictPorts {
+		if p > 0 {
+			conflicts[p] = true
+		}
+	}
+	candidates := []int{preferred}
+	for p := 30053; p <= 30099; p++ {
+		candidates = append(candidates, p)
+	}
+	var lc net.ListenConfig
+	for _, p := range candidates {
+		if p <= 0 || conflicts[p] {
+			continue
+		}
+		if ln, err := lc.Listen(context.Background(), "tcp", fmt.Sprintf("127.0.0.1:%d", p)); err == nil {
+			_ = ln.Close()
+			return p
+		}
+	}
+	return preferred
 }

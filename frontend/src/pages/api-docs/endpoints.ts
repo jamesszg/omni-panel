@@ -2920,6 +2920,8 @@ export const sections: readonly Section[] = [
             acmeMode: { type: 'string' },
             acmeEmail: { type: 'string' },
             hasAcmeCfToken: { type: 'boolean' },
+            hasPanelCert: { type: 'boolean' },
+            certFile: { type: 'string' },
             singboxRunning: { type: 'boolean' },
             singboxVersion: { type: 'string' },
             singboxError: { type: 'string' },
@@ -3056,7 +3058,8 @@ export const sections: readonly Section[] = [
             },
             acmeMode: {
               type: 'string',
-              description: 'Certificate issuance mode (tls-alpn-01, dns-01-cf, self-signed).',
+              description:
+                'Certificate issuance mode (existing-cert, tls-alpn-01, dns-01-cf, self-signed).',
             },
             acmeEmail: { type: 'string', description: 'ACME contact email address.' },
             acmeCfApiToken: {

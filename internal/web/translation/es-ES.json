@@ -807,6 +807,7 @@
       "omni": {
         "acmeCfApiToken": "Cloudflare DNS API Token",
         "acmeEmail": "ACME Contact Email",
+        "acmeExistingCert": "Certificado x-ui existente",
         "acmeMode": "ACME Mode",
         "addInitialClient": "Add Initial Client",
         "authoritativeGatewayLinks": "Gateway Links & sing-box Client Config",
@@ -816,6 +817,7 @@
         "coreAuto": "Auto (Recommended)",
         "coreEngine": "Core Engine",
         "domainRequired": "Please enter the gateway domain name",
+        "existingCertDetected": "Certificado TLS de panel / x-ui detectado",
         "gatewayDomain": "Gateway Domain",
         "gatewayMode": "Gateway Mode",
         "gatewayModeDirect": "Direct Port (Bypass :443 Gateway)",
