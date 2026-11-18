@@ -192,7 +192,7 @@ jobs:
           if [ -n "$RPXY_TARGET" ] && curl -sfLRO $CURL_RETRY "https://github.com/junkurihara/rust-rpxy-l4/releases/download/${RPXY_VER}/rpxy-l4-${RPXY_TARGET}.tar.gz"; then
             mkdir -p rpxy-tmp
             tar -xzf "rpxy-l4-${RPXY_TARGET}.tar.gz" -C rpxy-tmp
-            RPXY_BIN=$(find rpxy-tmp -type f -name 'rpxy-l4' | head -n1)
+            RPXY_BIN=$(find rpxy-tmp -type f -name 'rpxy-l4*' | head -n1)
             if [ -n "$RPXY_BIN" ]; then
               mv "$RPXY_BIN" "rpxy-l4"
               chmod +x "rpxy-l4"

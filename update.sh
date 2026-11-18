@@ -567,7 +567,7 @@ install_rpxy_l4() {
     if ${curl_bin} -fLR --retry 5 --retry-delay 3 --connect-timeout 15 -o "${tmp_dir}/${pkg}" "https://github.com/junkurihara/rust-rpxy-l4/releases/download/${rpxy_ver}/${pkg}" &&
         tar -xzf "${tmp_dir}/${pkg}" -C "${tmp_dir}"; then
         local found_bin
-        found_bin=$(find "${tmp_dir}" -type f -name 'rpxy-l4' | head -n1)
+        found_bin=$(find "${tmp_dir}" -type f -name 'rpxy-l4*' | head -n1)
         if [[ -n "${found_bin}" ]]; then
             mv -f "${found_bin}" "${target_bin}"
             chmod +x "${target_bin}"
