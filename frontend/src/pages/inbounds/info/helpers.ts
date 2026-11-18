@@ -14,6 +14,8 @@ const LINK_PROTOCOLS: ReadonlySet<string> = new Set([
   Protocols.HYSTERIA,
   Protocols.MTPROTO,
   Protocols.TUIC,
+  Protocols.ANYTLS,
+  Protocols.SHADOWTLS,
 ]);
 
 export function hasShareLink(protocol: string): boolean {

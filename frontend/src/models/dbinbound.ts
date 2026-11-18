@@ -48,6 +48,13 @@ export type DBInboundInit = Partial<{
   disableFlow: boolean;
   originNodeGuid: string;
   fallbackParent: FallbackParentRef | null;
+  core?: string;
+  gatewayMode?: string;
+  gatewaySni?: string;
+  gatewayPath?: string;
+  publicPort?: number;
+  templateId?: string;
+  configOverride?: string;
 }>;
 
 export function coerceInboundJsonField(value: unknown): Record<string, unknown> {
@@ -98,6 +105,13 @@ export class DBInbound {
   disableFlow: boolean;
   originNodeGuid: string;
   fallbackParent: FallbackParentRef | null;
+  core?: string;
+  gatewayMode?: string;
+  gatewaySni?: string;
+  gatewayPath?: string;
+  publicPort?: number;
+  templateId?: string;
+  configOverride?: string;
 
   private _clientStatsMap: Map<string, ClientStats> | null = null;
 
@@ -186,6 +200,14 @@ export class DBInbound {
 
   get isTunnel() {
     return this.protocol === Protocols.TUNNEL;
+  }
+
+  get isAnytls() {
+    return this.protocol === Protocols.ANYTLS;
+  }
+
+  get isShadowtls() {
+    return this.protocol === Protocols.SHADOWTLS;
   }
 
   get address(): string {

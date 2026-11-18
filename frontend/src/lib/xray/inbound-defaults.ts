@@ -16,6 +16,11 @@ import type {
 } from '@/schemas/protocols/inbound/shadowsocks';
 import type { TrojanClient, TrojanInboundSettings } from '@/schemas/protocols/inbound/trojan';
 import type { TuicClient, TuicInboundSettings } from '@/schemas/protocols/inbound/tuic';
+import type { AnytlsClient, AnytlsInboundSettings } from '@/schemas/protocols/inbound/anytls';
+import type {
+  ShadowtlsClient,
+  ShadowtlsInboundSettings,
+} from '@/schemas/protocols/inbound/shadowtls';
 import type { TunInboundSettings } from '@/schemas/protocols/inbound/tun';
 import type { TunnelInboundSettings } from '@/schemas/protocols/inbound/tunnel';
 import type { VlessClient, VlessInboundSettings } from '@/schemas/protocols/inbound/vless';
@@ -154,6 +159,28 @@ export function createDefaultTuicClient(seed: TuicClientSeed = {}): TuicClient {
     uuid,
     id: uuid,
     password: seed.password ?? RandomUtil.randomSeq(10),
+    ...clientBase(seed),
+  };
+}
+
+export interface AnytlsClientSeed extends ClientBaseSeed {
+  password?: string;
+}
+
+export function createDefaultAnytlsClient(seed: AnytlsClientSeed = {}): AnytlsClient {
+  return {
+    password: seed.password ?? RandomUtil.randomSeq(12),
+    ...clientBase(seed),
+  };
+}
+
+export interface ShadowtlsClientSeed extends ClientBaseSeed {
+  password?: string;
+}
+
+export function createDefaultShadowtlsClient(seed: ShadowtlsClientSeed = {}): ShadowtlsClient {
+  return {
+    password: seed.password ?? RandomUtil.randomSeq(12),
     ...clientBase(seed),
   };
 }
@@ -366,6 +393,27 @@ export function createDefaultTuicInboundSettings(): TuicInboundSettings {
   };
 }
 
+export function createDefaultAnytlsInboundSettings(): AnytlsInboundSettings {
+  return {
+    paddingScheme: [
+      'stop=8',
+      '0=30-30',
+      '1=100-400',
+      '2=400-500,c,500-1000,c,500-1000,c,500-1000,c,500-1000',
+    ],
+    clients: [],
+  };
+}
+
+export function createDefaultShadowtlsInboundSettings(): ShadowtlsInboundSettings {
+  return {
+    handshakeServer: 'www.microsoft.com',
+    handshakePort: 443,
+    detour: '',
+    clients: [],
+  };
+}
+
 // Protocol-aware dispatch over every inbound-settings factory. Mirrors
 // the legacy `Inbound.Settings.getSettings(protocol)` dispatcher, but
 // returns a plain Zod-parsable object instead of a class instance.
@@ -385,7 +433,9 @@ export type AnyInboundSettings =
   | MtprotoInboundSettings
   | AmneziawgInboundSettings
   | TuicInboundSettings
-  | MasqueInboundSettings;
+  | MasqueInboundSettings
+  | AnytlsInboundSettings
+  | ShadowtlsInboundSettings;
 
 export function createDefaultInboundSettings(protocol: string): AnyInboundSettings | null {
   switch (protocol) {
@@ -417,6 +467,10 @@ export function createDefaultInboundSettings(protocol: string): AnyInboundSettin
       return createDefaultTuicInboundSettings();
     case 'masque':
       return createDefaultMasqueInboundSettings();
+    case 'anytls':
+      return createDefaultAnytlsInboundSettings();
+    case 'shadowtls':
+      return createDefaultShadowtlsInboundSettings();
     default:
       return null;
   }

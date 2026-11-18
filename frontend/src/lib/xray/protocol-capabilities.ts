@@ -5,7 +5,7 @@
 // called against a partial-row, a full form value, or a hand-built test
 // fixture without the caller projecting a whole object.
 
-const TLS_ELIGIBLE_PROTOCOLS = ['vmess', 'vless', 'trojan', 'shadowsocks'];
+const TLS_ELIGIBLE_PROTOCOLS = ['vmess', 'vless', 'trojan', 'shadowsocks', 'anytls'];
 const TLS_NETWORKS = ['tcp', 'ws', 'http', 'grpc', 'httpupgrade', 'xhttp'];
 const REALITY_ELIGIBLE_PROTOCOLS = ['vless', 'trojan'];
 const REALITY_NETWORKS = ['tcp', 'http', 'grpc', 'xhttp'];
@@ -18,6 +18,7 @@ const STREAM_PROTOCOLS = [
   'wireguard',
   'tunnel',
   'masque',
+  'anytls',
 ];
 const VISION_FLOW = 'xtls-rprx-vision';
 const SS_2022_PREFIX = '2022';

@@ -722,12 +722,17 @@ export interface HwidSlotStatus {
 
 export interface Inbound {
   clientStats: ClientTraffic[];
+  configOverride?: string;
+  core?: string;
   disableFlow: boolean;
   down: number;
   enable: boolean;
   excludeFromSub: boolean;
   expiryTime: number;
   fallbackParent?: FallbackParentInfo | null;
+  gatewayMode?: string;
+  gatewayPath?: string;
+  gatewaySni?: string;
   id: number;
   lastTrafficResetTime: number;
   listen: string;
@@ -735,6 +740,7 @@ export interface Inbound {
   originNodeGuid?: string;
   port: number;
   protocol: Protocol;
+  publicPort?: number;
   remark: string;
   settings: unknown;
   shareAddr: string;
@@ -743,6 +749,7 @@ export interface Inbound {
   streamSettings: unknown;
   subSortIndex: number;
   tag: string;
+  templateId?: string;
   total: number;
   trafficReset: string;
   trafficResetDay: number;

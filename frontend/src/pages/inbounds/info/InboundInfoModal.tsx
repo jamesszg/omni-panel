@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button, Divider, Modal, Space, Tabs, Tag, Tooltip } from 'antd';
+import { Alert, Button, Divider, Modal, Space, Tabs, Tag, Tooltip } from 'antd';
 import { CopyOutlined, SyncOutlined, DeleteOutlined, DownloadOutlined } from '@ant-design/icons';
 
 import { HttpUtil, IntlUtil, SizeFormatter, ColorUtils, Wireguard } from '@/utils';
@@ -30,6 +30,15 @@ import {
 } from './helpers';
 import type { ClientSetting, ClientStats, InboundInfo, InboundInfoModalProps } from './types';
 import './InboundInfoModal.css';
+
+interface GatewayClientBundle {
+  email: string;
+  protocol: string;
+  core: string;
+  uri: string;
+  singboxOutboundJson?: string;
+  warnings?: string[];
+}
 
 const EMPTY_HOSTS: NonNullable<InboundInfoModalProps['hosts']> = [];
 
@@ -64,6 +73,49 @@ export default function InboundInfoModal({
   const [clientIpsArray, setClientIpsArray] = useState<string[]>([]);
   const [clientIpsText, setClientIpsText] = useState('');
   const [activeTab, setActiveTab] = useState('client');
+  const [gatewayBundleState, setGatewayBundleState] = useState<{
+    key: string;
+    items: GatewayClientBundle[];
+  }>({ key: '', items: [] });
+  const gatewayBundleKey =
+    open && dbInbound?.id && dbInbound.id > 0
+      ? `${dbInbound.id}:${clientSettings?.email ?? ''}`
+      : '';
+  const gatewayBundles =
+    gatewayBundleKey !== '' && gatewayBundleState.key === gatewayBundleKey
+      ? gatewayBundleState.items
+      : [];
+
+  useEffect(() => {
+    if (!gatewayBundleKey || !dbInbound?.id) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const email = clientSettings?.email || '';
+        const query = email ? `?email=${encodeURIComponent(email)}` : '';
+        const msg = await HttpUtil.get(
+          `/panel/api/gateway/clientLinks/${dbInbound.id}${query}`,
+          undefined,
+          { silent: true },
+        );
+        if (!cancelled && msg?.success && Array.isArray(msg.obj)) {
+          setGatewayBundleState({
+            key: gatewayBundleKey,
+            items: msg.obj as GatewayClientBundle[],
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setGatewayBundleState({ key: gatewayBundleKey, items: [] });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [gatewayBundleKey, dbInbound?.id, clientSettings?.email]);
 
   const loadClientIps = useCallback(async () => {
     if (!clientStats?.email) return;
@@ -564,6 +616,69 @@ export default function InboundInfoModal({
                 </Tooltip>
               </div>
               <code className="link-panel-text">{link.link}</code>
+            </div>
+          ))}
+        </>
+      )}
+
+      {gatewayBundles.length > 0 && (
+        <>
+          <Divider>{t('pages.inbounds.omni.authoritativeGatewayLinks')}</Divider>
+          {gatewayBundles.map((bundle, idx) => (
+            <div key={`gw-${idx}`} className="link-panel">
+              <div className="link-panel-header">
+                <Space size="small">
+                  <Tag color={bundle.core === 'singbox' ? 'cyan' : 'blue'}>{bundle.core}</Tag>
+                  <Tag>{bundle.protocol}</Tag>
+                  {bundle.email && <Tag color="green">{bundle.email}</Tag>}
+                </Space>
+                {bundle.uri && (
+                  <Tooltip title={t('copy')}>
+                    <Button
+                      size="small"
+                      icon={<CopyOutlined aria-hidden />}
+                      aria-label={t('copy')}
+                      onClick={() => copyText(bundle.uri, t)}
+                    />
+                  </Tooltip>
+                )}
+              </div>
+              {bundle.warnings && bundle.warnings.length > 0 && (
+                <Alert
+                  style={{ marginBottom: 8 }}
+                  type="warning"
+                  showIcon
+                  title={bundle.warnings.join(' | ')}
+                />
+              )}
+              {bundle.uri && <code className="link-panel-text">{bundle.uri}</code>}
+              {bundle.singboxOutboundJson && (
+                <div style={{ marginTop: 8 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 4,
+                    }}
+                  >
+                    <span style={{ fontSize: 12, opacity: 0.75 }}>
+                      {t('pages.inbounds.omni.singboxOutbound')}
+                    </span>
+                    <Tooltip title={t('copy')}>
+                      <Button
+                        size="small"
+                        icon={<CopyOutlined aria-hidden />}
+                        aria-label={t('copy')}
+                        onClick={() => copyText(bundle.singboxOutboundJson ?? '', t)}
+                      />
+                    </Tooltip>
+                  </div>
+                  <pre className="link-panel-text" style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                    <code>{bundle.singboxOutboundJson}</code>
+                  </pre>
+                </div>
+              )}
             </div>
           ))}
         </>

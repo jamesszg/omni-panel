@@ -83,6 +83,13 @@ export const InboundDbFieldsSchema = z.object({
   subSortIndex: z.number().int().default(1),
   excludeFromSub: z.boolean().default(false),
   disableFlow: z.boolean().default(false),
+  core: z.string().optional(),
+  gatewayMode: z.string().optional(),
+  gatewaySni: z.string().optional(),
+  gatewayPath: z.string().optional(),
+  publicPort: z.number().int().min(0).max(65535).optional(),
+  templateId: z.string().optional(),
+  configOverride: z.string().optional(),
 });
 export type InboundDbFields = z.infer<typeof InboundDbFieldsSchema>;
 

@@ -3129,6 +3129,13 @@ export const SCHEMAS: Record<string, unknown> = {
         },
         "type": "array"
       },
+      "configOverride": {
+        "type": "string"
+      },
+      "core": {
+        "example": "xray",
+        "type": "string"
+      },
       "disableFlow": {
         "example": false,
         "type": "boolean"
@@ -3161,6 +3168,16 @@ export const SCHEMAS: Record<string, unknown> = {
         ],
         "description": "FallbackParent is populated by the API layer when this inbound is\nattached as a fallback child of a VLESS/Trojan TCP-TLS master.\nThe frontend uses it to rewrite client-share links so they advertise\nthe master's externally reachable endpoint instead of the child's\nloopback listen. Not persisted.",
         "nullable": true
+      },
+      "gatewayMode": {
+        "example": "direct",
+        "type": "string"
+      },
+      "gatewayPath": {
+        "type": "string"
+      },
+      "gatewaySni": {
+        "type": "string"
       },
       "id": {
         "description": "Unique identifier",
@@ -3205,10 +3222,15 @@ export const SCHEMAS: Record<string, unknown> = {
           "mtproto",
           "amneziawg",
           "tuic",
-          "masque"
+          "masque",
+          "anytls",
+          "shadowtls"
         ],
         "example": "vless",
         "type": "string"
+      },
+      "publicPort": {
+        "type": "integer"
       },
       "remark": {
         "description": "Human-readable remark",
@@ -3236,6 +3258,9 @@ export const SCHEMAS: Record<string, unknown> = {
       },
       "tag": {
         "example": "in-443-tcp",
+        "type": "string"
+      },
+      "templateId": {
         "type": "string"
       },
       "total": {

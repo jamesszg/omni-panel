@@ -2897,4 +2897,257 @@ export const sections: readonly Section[] = [
       },
     ],
   },
+
+  {
+    id: 'gateway',
+    title: 'Unified :443 Gateway & Multi-Core',
+    description:
+      'Manage the unified :443 L4/L7 gateway (rust-rpxy-l4 + embedded L7 gateway), inspect sing-box health, retrieve strictly-validated built-in templates, validate candidate inbounds, bootstrap a full :443 stack in one click, and generate gateway-aware client share bundles.',
+    endpoints: [
+      {
+        method: 'GET',
+        path: '/panel/api/gateway/status',
+        summary:
+          'Return unified :443 gateway settings, upstream sing-box status/version, and active L4/L7 routing topology.',
+        responseObjectSchema: {
+          type: 'object',
+          properties: {
+            gatewayEnable: { type: 'boolean' },
+            publicPort: { type: 'integer' },
+            l7Port: { type: 'integer' },
+            domain: { type: 'string' },
+            speedtestEnable: { type: 'boolean' },
+            acmeMode: { type: 'string' },
+            acmeEmail: { type: 'string' },
+            hasAcmeCfToken: { type: 'boolean' },
+            singboxRunning: { type: 'boolean' },
+            singboxVersion: { type: 'string' },
+            singboxError: { type: 'string' },
+            gatewayRuntime: {
+              type: 'object',
+              properties: {
+                enabled: { type: 'boolean' },
+                l7Running: { type: 'boolean' },
+                l7Addr: { type: 'string' },
+                rpxyBinaryFound: { type: 'boolean' },
+                rpxyRunning: { type: 'boolean' },
+                lastError: { type: 'string' },
+                topology: {
+                  type: 'object',
+                  nullable: true,
+                  properties: {
+                    publicPort: { type: 'integer' },
+                    l7Port: { type: 'integer' },
+                    sniPassthroughCount: { type: 'integer' },
+                    l7PathCount: { type: 'integer' },
+                    quicCount: { type: 'integer' },
+                    udpMuxActive: { type: 'boolean' },
+                    quicDirectPort: { type: 'integer' },
+                    warnings: { type: 'array', nullable: true, items: { type: 'string' } },
+                    rules: {
+                      type: 'array',
+                      nullable: true,
+                      items: {
+                        type: 'object',
+                        properties: {
+                          name: { type: 'string' },
+                          inboundId: { type: 'integer' },
+                          inboundTag: { type: 'string' },
+                          protocol: { type: 'string' },
+                          core: { type: 'string' },
+                          gatewayMode: { type: 'string' },
+                          serverNames: {
+                            type: 'array',
+                            nullable: true,
+                            items: { type: 'string' },
+                          },
+                          path: { type: 'string' },
+                          target: { type: 'string' },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        response:
+          '{\n  "success": true,\n  "obj": {\n    "gatewayEnable": true,\n    "publicPort": 443,\n    "l7Port": 30000,\n    "domain": "proxy.example.com",\n    "speedtestEnable": true,\n    "acmeMode": "tls-alpn-01",\n    "acmeEmail": "admin@example.com",\n    "hasAcmeCfToken": false,\n    "singboxRunning": true,\n    "singboxVersion": "1.14.4",\n    "gatewayRuntime": {\n      "enabled": true,\n      "l7Running": true,\n      "l7Addr": "127.0.0.1:30000",\n      "rpxyBinaryFound": true,\n      "rpxyRunning": true\n    }\n  }\n}',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/gateway/templates',
+        summary:
+          'List built-in curated protocol templates with core bindings, recommended ALPN constraints, and protocol restrictions.',
+        responseObjectSchema: {
+          type: 'array',
+          nullable: true,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              description: { type: 'string' },
+              core: { type: 'string' },
+              protocol: { type: 'string' },
+              transport: { type: 'string' },
+              security: { type: 'string' },
+              gatewayMode: { type: 'string' },
+              recommendedAlpn: { type: 'array', nullable: true, items: { type: 'string' } },
+              defaultPort: { type: 'integer' },
+              oneClickPreset: { type: 'boolean' },
+              restrictions: { type: 'array', nullable: true, items: { type: 'string' } },
+            },
+          },
+        },
+        response:
+          '{\n  "success": true,\n  "obj": [\n    {\n      "id": "singbox-hysteria2-443",\n      "name": "Hysteria2 (sing-box · :443 UDP)",\n      "core": "singbox",\n      "protocol": "hysteria",\n      "gatewayMode": "rpxy_quic",\n      "recommendedAlpn": ["h3"],\n      "defaultPort": 443,\n      "oneClickPreset": true,\n      "restrictions": ["Uses QUIC over UDP; ALPN must be h3 only."]\n    }\n  ]\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/gateway/validate',
+        summary:
+          'Validate a candidate inbound (core compatibility, ALPN constraints, :443 gateway routing, and JSON configOverride syntax) against existing inbounds without persisting changes.',
+        requestSchema: { $ref: '#/components/schemas/Inbound' },
+        responseObjectSchema: {
+          type: 'object',
+          properties: {
+            valid: { type: 'boolean' },
+            warnings: { type: 'array', nullable: true, items: { type: 'string' } },
+            error: { type: 'string' },
+          },
+        },
+        response:
+          '{\n  "success": true,\n  "obj": {\n    "valid": true,\n    "warnings": []\n  }\n}',
+      },
+      {
+        method: 'POST',
+        path: '/panel/api/gateway/bootstrap',
+        summary:
+          'Configure gateway/ACME/speedtest settings and instantiate one or more strictly-validated :443 preset inbounds (e.g. Hysteria2, VLESS REALITY Vision, Trojan/VLESS L7 WS) in one atomic flow.',
+        requestSchema: {
+          type: 'object',
+          required: ['domain'],
+          properties: {
+            domain: { type: 'string', description: 'Gateway domain name bound to :443.' },
+            publicPort: { type: 'integer', description: 'Public gateway port (default 443).' },
+            presetIds: {
+              type: 'array',
+              items: { type: 'string' },
+              description:
+                'Built-in template IDs to provision (defaults to Hysteria2 + REALITY Vision + WS-TLS).',
+            },
+            realityDest: {
+              type: 'string',
+              description: 'REALITY target address host:port (for REALITY presets).',
+            },
+            realitySni: {
+              type: 'string',
+              description: 'REALITY camouflaged SNI hostname (distinct from gateway domain).',
+            },
+            clientEmail: {
+              type: 'string',
+              description: 'Initial client email identifier created on all provisioned inbounds.',
+            },
+            subId: {
+              type: 'string',
+              description: 'Shared subscription ID attached to created clients.',
+            },
+            acmeMode: {
+              type: 'string',
+              description: 'Certificate issuance mode (tls-alpn-01, dns-01-cf, self-signed).',
+            },
+            acmeEmail: { type: 'string', description: 'ACME contact email address.' },
+            acmeCfApiToken: {
+              type: 'string',
+              description: 'Cloudflare DNS API token (used with dns-01-cf).',
+            },
+            speedtestEnable: {
+              type: 'boolean',
+              description: 'Enable embedded OpenSpeedTest fallback on unmatched HTTPS paths.',
+            },
+          },
+        },
+        responseObjectSchema: {
+          type: 'object',
+          properties: {
+            domain: { type: 'string' },
+            publicPort: { type: 'integer' },
+            subId: { type: 'string' },
+            subUrl: { type: 'string' },
+            warnings: { type: 'array', nullable: true, items: { type: 'string' } },
+            inbounds: {
+              type: 'array',
+              nullable: true,
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'integer' },
+                  tag: { type: 'string' },
+                  remark: { type: 'string' },
+                  core: { type: 'string' },
+                  protocol: { type: 'string' },
+                  port: { type: 'integer' },
+                  publicPort: { type: 'integer' },
+                  gatewayMode: { type: 'string' },
+                  templateId: { type: 'string' },
+                  bundles: {
+                    type: 'array',
+                    nullable: true,
+                    items: {
+                      type: 'object',
+                      properties: {
+                        email: { type: 'string' },
+                        protocol: { type: 'string' },
+                        core: { type: 'string' },
+                        uri: { type: 'string' },
+                        singboxOutboundJson: { type: 'string' },
+                        warnings: { type: 'array', nullable: true, items: { type: 'string' } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            gatewayRuntime: { type: 'object' },
+          },
+        },
+        body: '{\n  "domain": "proxy.example.com",\n  "publicPort": 443,\n  "presetIds": ["singbox-hysteria2-443", "xray-vless-reality-vision-443"],\n  "speedtestEnable": true\n}',
+      },
+      {
+        method: 'GET',
+        path: '/panel/api/gateway/clientLinks/:id',
+        summary:
+          'Generate authoritative gateway-projected share URIs, sing-box client outbound JSON snippets, and warnings for an inbound.',
+        params: [
+          { name: 'id', in: 'path', type: 'integer', desc: 'Inbound ID.' },
+          {
+            name: 'email',
+            in: 'query',
+            type: 'string',
+            desc: 'Filter bundles to a single client email.',
+            optional: true,
+          },
+        ],
+        responseObjectSchema: {
+          type: 'array',
+          nullable: true,
+          items: {
+            type: 'object',
+            properties: {
+              email: { type: 'string' },
+              protocol: { type: 'string' },
+              core: { type: 'string' },
+              uri: { type: 'string' },
+              singboxOutboundJson: { type: 'string' },
+              warnings: { type: 'array', nullable: true, items: { type: 'string' } },
+            },
+          },
+        },
+        response:
+          '{\n  "success": true,\n  "obj": [\n    {\n      "email": "alice@example.com",\n      "protocol": "hysteria",\n      "core": "singbox",\n      "uri": "hysteria2://pass@proxy.example.com:443?sni=proxy.example.com&alpn=h3#Hysteria2-alice"\n    }\n  ]\n}',
+      },
+    ],
+  },
 ];

@@ -25,6 +25,7 @@ import {
   InfoCircleOutlined,
   DeleteOutlined,
   SearchOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 
 import { HttpUtil } from '@/utils';
@@ -61,6 +62,7 @@ export default function InboundList({
   hasActiveNode,
   hosts,
   onAddInbound,
+  onOpenQuick443,
   onGeneralAction,
   onRowAction,
   onBulkDelete,
@@ -230,6 +232,15 @@ export default function InboundList({
           >
             {!isMobile && t('pages.inbounds.addInbound')}
           </Button>
+          {onOpenQuick443 && (
+            <Button
+              onClick={onOpenQuick443}
+              icon={<ThunderboltOutlined aria-hidden />}
+              aria-label={t('pages.inbounds.omni.quick443Setup')}
+            >
+              {!isMobile && t('pages.inbounds.omni.quick443Setup')}
+            </Button>
+          )}
           <Dropdown trigger={['click']} menu={generalActionsMenu}>
             <Button
               type="primary"

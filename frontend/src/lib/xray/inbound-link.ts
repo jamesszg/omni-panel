@@ -999,6 +999,69 @@ export function genTuicLink(input: GenTuicLinkInput): string {
   return url.toString();
 }
 
+export interface GenAnytlsLinkInput {
+  inbound: Inbound;
+  address: string;
+  port: number;
+  remark?: string;
+  clientPassword: string;
+  externalProxy?: ExternalProxyEntry | null;
+}
+
+export function genAnytlsLink(input: GenAnytlsLinkInput): string {
+  const { inbound, address, port, remark = '', clientPassword, externalProxy = null } = input;
+  if (inbound.protocol !== 'anytls' || !clientPassword) return '';
+  const host = formatUrlHost(externalProxy?.dest || address);
+  const targetPort = externalProxy?.port || port;
+  const url = new URL(`anytls://${encodeURIComponent(clientPassword)}@${host}:${targetPort}`);
+
+  const tls =
+    inbound.streamSettings && 'tlsSettings' in inbound.streamSettings
+      ? inbound.streamSettings.tlsSettings
+      : undefined;
+  const sni =
+    externalProxy?.sni ||
+    tls?.serverName ||
+    ((inbound as { gatewaySni?: string }).gatewaySni ?? '');
+  if (sni) url.searchParams.set('sni', sni);
+  if (
+    externalProxy?.allowInsecure ||
+    (tls?.settings as { allowInsecure?: boolean } | undefined)?.allowInsecure
+  ) {
+    url.searchParams.set('insecure', '1');
+  }
+  if (remark) url.hash = encodeURIComponent(remark);
+  return url.toString();
+}
+
+export interface GenShadowtlsLinkInput {
+  inbound: Inbound;
+  address: string;
+  port: number;
+  remark?: string;
+  clientPassword: string;
+  externalProxy?: ExternalProxyEntry | null;
+}
+
+export function genShadowtlsLink(input: GenShadowtlsLinkInput): string {
+  const { inbound, address, port, remark = '', clientPassword, externalProxy = null } = input;
+  if (inbound.protocol !== 'shadowtls' || !clientPassword) return '';
+  const host = formatUrlHost(externalProxy?.dest || address);
+  const targetPort = externalProxy?.port || port;
+  const url = new URL(`shadowtls://${encodeURIComponent(clientPassword)}@${host}:${targetPort}`);
+
+  const rawSettings = inbound.settings as { handshakeServer?: string };
+  const sni =
+    externalProxy?.sni ||
+    rawSettings.handshakeServer ||
+    ((inbound as { gatewaySni?: string }).gatewaySni ?? '');
+  url.searchParams.set('security', 'tls');
+  url.searchParams.set('version', '3');
+  if (sni) url.searchParams.set('sni', sni);
+  if (remark) url.hash = encodeURIComponent(remark);
+  return url.toString();
+}
+
 export interface GenWireguardLinkInput {
   settings: WireguardInboundSettings;
   address: string;
@@ -1456,6 +1519,10 @@ export function getInboundClients(inbound: Inbound): ClientShape[] | null {
       return (inbound.settings.clients ?? []) as ClientShape[];
     case 'shadowsocks':
       return (inbound.settings.clients ?? []) as ClientShape[];
+    case 'anytls':
+      return (inbound.settings.clients ?? []) as ClientShape[];
+    case 'shadowtls':
+      return (inbound.settings.clients ?? []) as ClientShape[];
     default:
       return null;
   }
@@ -1555,6 +1622,24 @@ export function genLink(input: GenLinkInput): string {
         remark,
         clientUuid: client.uuid ?? client.id ?? '',
         clientPassword: client.password ?? '',
+        externalProxy,
+      });
+    case 'anytls':
+      return genAnytlsLink({
+        inbound,
+        address,
+        port,
+        remark,
+        clientPassword: client.password || client.id || '',
+        externalProxy,
+      });
+    case 'shadowtls':
+      return genShadowtlsLink({
+        inbound,
+        address,
+        port,
+        remark,
+        clientPassword: client.password || client.id || '',
         externalProxy,
       });
     default:

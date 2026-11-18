@@ -49,6 +49,7 @@ import { useInbounds } from './useInbounds';
 import { InboundList } from './list';
 import { LazyMount } from '@/components/utility';
 const InboundFormModal = lazy(() => import('./form/InboundFormModal'));
+const Quick443WizardModal = lazy(() => import('./Quick443WizardModal'));
 const CloneInboundModal = lazy(() => import('./CloneInboundModal'));
 const InboundInfoModal = lazy(() => import('./info/InboundInfoModal'));
 const AttachClientsModal = lazy(() => import('./clients/AttachClientsModal'));
@@ -458,6 +459,8 @@ export default function InboundsPage() {
     });
   }, [openPrompt, refresh, t]);
 
+  const [quickWizardOpen, setQuickWizardOpen] = useState(false);
+
   const onAddInbound = useCallback(() => {
     setFormMode('add');
     setFormDbInbound(null);
@@ -799,6 +802,7 @@ export default function InboundsPage() {
                       hasActiveNode={showNodeInfo}
                       hosts={hosts}
                       onAddInbound={onAddInbound}
+                      onOpenQuick443={() => setQuickWizardOpen(true)}
                       onGeneralAction={onGeneralAction}
                       onRowAction={({ key, dbInbound }) =>
                         onRowAction({ key, dbInbound: dbInbound as unknown as DBInbound })
@@ -822,6 +826,13 @@ export default function InboundsPage() {
             dbInbounds={dbInbounds}
             availableNodes={nodesList}
             availableNodesFetched={nodesFetched}
+          />
+        </LazyMount>
+        <LazyMount when={quickWizardOpen}>
+          <Quick443WizardModal
+            open={quickWizardOpen}
+            onClose={() => setQuickWizardOpen(false)}
+            onCompleted={refresh}
           />
         </LazyMount>
         <LazyMount when={infoOpen}>

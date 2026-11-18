@@ -11,6 +11,8 @@ import {
   MasqueClientSchema,
   MtprotoClientSchema,
   ShadowsocksClientSchema,
+  ShadowtlsClientSchema,
+  AnytlsClientSchema,
   TrojanClientSchema,
   TuicClientSchema,
   VlessClientSchema,
@@ -63,6 +65,13 @@ export interface RawInboundRow {
   excludeFromSub?: boolean;
   disableFlow?: boolean;
   clientStats?: unknown;
+  core?: string;
+  gatewayMode?: string;
+  gatewaySni?: string;
+  gatewayPath?: string;
+  publicPort?: number;
+  templateId?: string;
+  configOverride?: string;
 }
 
 // The wire payload — settings/streamSettings/sniffing arrive as JSON
@@ -92,6 +101,13 @@ export interface WireInboundPayload {
   subSortIndex: number;
   excludeFromSub: boolean;
   disableFlow: boolean;
+  core?: string;
+  gatewayMode?: string;
+  gatewaySni?: string;
+  gatewayPath?: string;
+  publicPort?: number;
+  templateId?: string;
+  configOverride?: string;
 }
 
 function coerceJsonObject(value: unknown): Record<string, unknown> {
@@ -239,6 +255,13 @@ export function rawInboundToFormValues(row: RawInboundRow): InboundFormValues {
     disableFlow: row.disableFlow ?? false,
     protocol,
     settings,
+    ...(row.core ? { core: row.core } : {}),
+    ...(row.gatewayMode ? { gatewayMode: row.gatewayMode } : {}),
+    ...(row.gatewaySni ? { gatewaySni: row.gatewaySni } : {}),
+    ...(row.gatewayPath ? { gatewayPath: row.gatewayPath } : {}),
+    ...(row.publicPort && row.publicPort > 0 ? { publicPort: row.publicPort } : {}),
+    ...(row.templateId ? { templateId: row.templateId } : {}),
+    ...(row.configOverride ? { configOverride: row.configOverride } : {}),
   } as InboundFormValues;
 }
 
@@ -295,6 +318,10 @@ function clientSchemaForProtocol(protocol: string): z.ZodType | null {
       return TuicClientSchema;
     case 'masque':
       return MasqueClientSchema;
+    case 'anytls':
+      return AnytlsClientSchema;
+    case 'shadowtls':
+      return ShadowtlsClientSchema;
     default:
       return null;
   }
@@ -405,5 +432,12 @@ export function formValuesToWirePayload(
     disableFlow: values.disableFlow,
   };
   if (values.nodeId != null) payload.nodeId = values.nodeId;
+  if (values.core) payload.core = values.core;
+  if (values.gatewayMode) payload.gatewayMode = values.gatewayMode;
+  if (values.gatewaySni) payload.gatewaySni = values.gatewaySni;
+  if (values.gatewayPath) payload.gatewayPath = values.gatewayPath;
+  if (values.publicPort && values.publicPort > 0) payload.publicPort = values.publicPort;
+  if (values.templateId) payload.templateId = values.templateId;
+  if (values.configOverride) payload.configOverride = values.configOverride;
   return payload;
 }

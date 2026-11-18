@@ -4,6 +4,8 @@ import { AmneziawgInboundSettingsSchema } from './amneziawg';
 import { HttpInboundSettingsSchema } from './http';
 import { HysteriaInboundSettingsSchema } from './hysteria';
 import { MasqueInboundSettingsSchema } from './masque';
+import { AnytlsInboundSettingsSchema } from './anytls';
+import { ShadowtlsInboundSettingsSchema } from './shadowtls';
 import { MixedInboundSettingsSchema } from './mixed';
 import { MtprotoInboundSettingsSchema } from './mtproto';
 import { ShadowsocksInboundSettingsSchema } from './shadowsocks';
@@ -22,6 +24,8 @@ export * from './masque';
 export * from './mixed';
 export * from './mtproto';
 export * from './shadowsocks';
+export * from './shadowtls';
+export * from './anytls';
 export * from './trojan';
 export * from './tuic';
 export * from './tun';
@@ -50,5 +54,7 @@ export const InboundSettingsSchema = z.discriminatedUnion('protocol', [
   z.object({ protocol: z.literal('amneziawg'), settings: AmneziawgInboundSettingsSchema }),
   z.object({ protocol: z.literal('tuic'), settings: TuicInboundSettingsSchema }),
   z.object({ protocol: z.literal('masque'), settings: MasqueInboundSettingsSchema }),
+  z.object({ protocol: z.literal('anytls'), settings: AnytlsInboundSettingsSchema }),
+  z.object({ protocol: z.literal('shadowtls'), settings: ShadowtlsInboundSettingsSchema }),
 ]);
 export type InboundSettings = z.infer<typeof InboundSettingsSchema>;

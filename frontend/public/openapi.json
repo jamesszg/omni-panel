@@ -3155,6 +3155,13 @@
             },
             "type": "array"
           },
+          "configOverride": {
+            "type": "string"
+          },
+          "core": {
+            "example": "xray",
+            "type": "string"
+          },
           "disableFlow": {
             "example": false,
             "type": "boolean"
@@ -3187,6 +3194,16 @@
             ],
             "description": "FallbackParent is populated by the API layer when this inbound is\nattached as a fallback child of a VLESS/Trojan TCP-TLS master.\nThe frontend uses it to rewrite client-share links so they advertise\nthe master's externally reachable endpoint instead of the child's\nloopback listen. Not persisted.",
             "nullable": true
+          },
+          "gatewayMode": {
+            "example": "direct",
+            "type": "string"
+          },
+          "gatewayPath": {
+            "type": "string"
+          },
+          "gatewaySni": {
+            "type": "string"
           },
           "id": {
             "description": "Unique identifier",
@@ -3231,10 +3248,15 @@
               "mtproto",
               "amneziawg",
               "tuic",
-              "masque"
+              "masque",
+              "anytls",
+              "shadowtls"
             ],
             "example": "vless",
             "type": "string"
+          },
+          "publicPort": {
+            "type": "integer"
           },
           "remark": {
             "description": "Human-readable remark",
@@ -3262,6 +3284,9 @@
           },
           "tag": {
             "example": "in-443-tcp",
+            "type": "string"
+          },
+          "templateId": {
             "type": "string"
           },
           "total": {
@@ -5070,6 +5095,10 @@
     {
       "name": "WebSocket",
       "description": "Real-time status updates via WebSocket. Connect once at <code>ws://<panel>/ws</code> to receive a stream of JSON messages without polling. Requires an authenticated session cookie (Bearer token auth is not supported). Each message has a <code>type</code> field that identifies the payload shape."
+    },
+    {
+      "name": "Unified :443 Gateway & Multi-Core",
+      "description": "Manage the unified :443 L4/L7 gateway (rust-rpxy-l4 + embedded L7 gateway), inspect sing-box health, retrieve strictly-validated built-in templates, validate candidate inbounds, bootstrap a full :443 stack in one click, and generate gateway-aware client share bundles."
     }
   ],
   "paths": {
@@ -5371,12 +5400,17 @@
                           "uuid": "e18c9a96-71bf-48d4-933f-8b9a46d4290c"
                         }
                       ],
+                      "configOverride": "",
+                      "core": "xray",
                       "disableFlow": false,
                       "down": 0,
                       "enable": true,
                       "excludeFromSub": false,
                       "expiryTime": 0,
                       "fallbackParent": null,
+                      "gatewayMode": "direct",
+                      "gatewayPath": "",
+                      "gatewaySni": "",
                       "id": 1,
                       "lastTrafficResetTime": 0,
                       "listen": "",
@@ -5384,6 +5418,7 @@
                       "originNodeGuid": "",
                       "port": 443,
                       "protocol": "vless",
+                      "publicPort": 0,
                       "remark": "VLESS-443",
                       "settings": null,
                       "shareAddr": "",
@@ -5392,6 +5427,7 @@
                       "streamSettings": null,
                       "subSortIndex": 1,
                       "tag": "in-443-tcp",
+                      "templateId": "",
                       "total": 0,
                       "trafficReset": "never",
                       "trafficResetDay": 1,
@@ -16943,12 +16979,17 @@
                       "uuid": "e18c9a96-71bf-48d4-933f-8b9a46d4290c"
                     }
                   ],
+                  "configOverride": "",
+                  "core": "xray",
                   "disableFlow": false,
                   "down": 0,
                   "enable": true,
                   "excludeFromSub": false,
                   "expiryTime": 0,
                   "fallbackParent": null,
+                  "gatewayMode": "direct",
+                  "gatewayPath": "",
+                  "gatewaySni": "",
                   "id": 1,
                   "lastTrafficResetTime": 0,
                   "listen": "",
@@ -16956,6 +16997,7 @@
                   "originNodeGuid": "",
                   "port": 443,
                   "protocol": "vless",
+                  "publicPort": 0,
                   "remark": "VLESS-443",
                   "settings": null,
                   "shareAddr": "",
@@ -16964,6 +17006,7 @@
                   "streamSettings": null,
                   "subSortIndex": 1,
                   "tag": "in-443-tcp",
+                  "templateId": "",
                   "total": 0,
                   "trafficReset": "never",
                   "trafficResetDay": 1,
@@ -17162,6 +17205,643 @@
             }
           }
         ]
+      }
+    },
+    "/panel/api/gateway/status": {
+      "get": {
+        "tags": [
+          "Unified :443 Gateway & Multi-Core"
+        ],
+        "summary": "Return unified :443 gateway settings, upstream sing-box status/version, and active L4/L7 routing topology.",
+        "operationId": "get_panel_api_gateway_status",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {
+                      "type": "object",
+                      "properties": {
+                        "gatewayEnable": {
+                          "type": "boolean"
+                        },
+                        "publicPort": {
+                          "type": "integer"
+                        },
+                        "l7Port": {
+                          "type": "integer"
+                        },
+                        "domain": {
+                          "type": "string"
+                        },
+                        "speedtestEnable": {
+                          "type": "boolean"
+                        },
+                        "acmeMode": {
+                          "type": "string"
+                        },
+                        "acmeEmail": {
+                          "type": "string"
+                        },
+                        "hasAcmeCfToken": {
+                          "type": "boolean"
+                        },
+                        "singboxRunning": {
+                          "type": "boolean"
+                        },
+                        "singboxVersion": {
+                          "type": "string"
+                        },
+                        "singboxError": {
+                          "type": "string"
+                        },
+                        "gatewayRuntime": {
+                          "type": "object",
+                          "properties": {
+                            "enabled": {
+                              "type": "boolean"
+                            },
+                            "l7Running": {
+                              "type": "boolean"
+                            },
+                            "l7Addr": {
+                              "type": "string"
+                            },
+                            "rpxyBinaryFound": {
+                              "type": "boolean"
+                            },
+                            "rpxyRunning": {
+                              "type": "boolean"
+                            },
+                            "lastError": {
+                              "type": "string"
+                            },
+                            "topology": {
+                              "type": "object",
+                              "nullable": true,
+                              "properties": {
+                                "publicPort": {
+                                  "type": "integer"
+                                },
+                                "l7Port": {
+                                  "type": "integer"
+                                },
+                                "sniPassthroughCount": {
+                                  "type": "integer"
+                                },
+                                "l7PathCount": {
+                                  "type": "integer"
+                                },
+                                "quicCount": {
+                                  "type": "integer"
+                                },
+                                "udpMuxActive": {
+                                  "type": "boolean"
+                                },
+                                "quicDirectPort": {
+                                  "type": "integer"
+                                },
+                                "warnings": {
+                                  "type": "array",
+                                  "nullable": true,
+                                  "items": {
+                                    "type": "string"
+                                  }
+                                },
+                                "rules": {
+                                  "type": "array",
+                                  "nullable": true,
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "name": {
+                                        "type": "string"
+                                      },
+                                      "inboundId": {
+                                        "type": "integer"
+                                      },
+                                      "inboundTag": {
+                                        "type": "string"
+                                      },
+                                      "protocol": {
+                                        "type": "string"
+                                      },
+                                      "core": {
+                                        "type": "string"
+                                      },
+                                      "gatewayMode": {
+                                        "type": "string"
+                                      },
+                                      "serverNames": {
+                                        "type": "array",
+                                        "nullable": true,
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "path": {
+                                        "type": "string"
+                                      },
+                                      "target": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "obj": {
+                    "gatewayEnable": true,
+                    "publicPort": 443,
+                    "l7Port": 30000,
+                    "domain": "proxy.example.com",
+                    "speedtestEnable": true,
+                    "acmeMode": "tls-alpn-01",
+                    "acmeEmail": "admin@example.com",
+                    "hasAcmeCfToken": false,
+                    "singboxRunning": true,
+                    "singboxVersion": "1.14.4",
+                    "gatewayRuntime": {
+                      "enabled": true,
+                      "l7Running": true,
+                      "l7Addr": "127.0.0.1:30000",
+                      "rpxyBinaryFound": true,
+                      "rpxyRunning": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/gateway/templates": {
+      "get": {
+        "tags": [
+          "Unified :443 Gateway & Multi-Core"
+        ],
+        "summary": "List built-in curated protocol templates with core bindings, recommended ALPN constraints, and protocol restrictions.",
+        "operationId": "get_panel_api_gateway_templates",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {
+                      "type": "array",
+                      "nullable": true,
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "core": {
+                            "type": "string"
+                          },
+                          "protocol": {
+                            "type": "string"
+                          },
+                          "transport": {
+                            "type": "string"
+                          },
+                          "security": {
+                            "type": "string"
+                          },
+                          "gatewayMode": {
+                            "type": "string"
+                          },
+                          "recommendedAlpn": {
+                            "type": "array",
+                            "nullable": true,
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "defaultPort": {
+                            "type": "integer"
+                          },
+                          "oneClickPreset": {
+                            "type": "boolean"
+                          },
+                          "restrictions": {
+                            "type": "array",
+                            "nullable": true,
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "obj": [
+                    {
+                      "id": "singbox-hysteria2-443",
+                      "name": "Hysteria2 (sing-box · :443 UDP)",
+                      "core": "singbox",
+                      "protocol": "hysteria",
+                      "gatewayMode": "rpxy_quic",
+                      "recommendedAlpn": [
+                        "h3"
+                      ],
+                      "defaultPort": 443,
+                      "oneClickPreset": true,
+                      "restrictions": [
+                        "Uses QUIC over UDP; ALPN must be h3 only."
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/gateway/validate": {
+      "post": {
+        "tags": [
+          "Unified :443 Gateway & Multi-Core"
+        ],
+        "summary": "Validate a candidate inbound (core compatibility, ALPN constraints, :443 gateway routing, and JSON configOverride syntax) against existing inbounds without persisting changes.",
+        "operationId": "post_panel_api_gateway_validate",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Inbound"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {
+                      "type": "object",
+                      "properties": {
+                        "valid": {
+                          "type": "boolean"
+                        },
+                        "warnings": {
+                          "type": "array",
+                          "nullable": true,
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "error": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "obj": {
+                    "valid": true,
+                    "warnings": []
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/gateway/bootstrap": {
+      "post": {
+        "tags": [
+          "Unified :443 Gateway & Multi-Core"
+        ],
+        "summary": "Configure gateway/ACME/speedtest settings and instantiate one or more strictly-validated :443 preset inbounds (e.g. Hysteria2, VLESS REALITY Vision, Trojan/VLESS L7 WS) in one atomic flow.",
+        "operationId": "post_panel_api_gateway_bootstrap",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "domain"
+                ],
+                "properties": {
+                  "domain": {
+                    "type": "string",
+                    "description": "Gateway domain name bound to :443."
+                  },
+                  "publicPort": {
+                    "type": "integer",
+                    "description": "Public gateway port (default 443)."
+                  },
+                  "presetIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Built-in template IDs to provision (defaults to Hysteria2 + REALITY Vision + WS-TLS)."
+                  },
+                  "realityDest": {
+                    "type": "string",
+                    "description": "REALITY target address host:port (for REALITY presets)."
+                  },
+                  "realitySni": {
+                    "type": "string",
+                    "description": "REALITY camouflaged SNI hostname (distinct from gateway domain)."
+                  },
+                  "clientEmail": {
+                    "type": "string",
+                    "description": "Initial client email identifier created on all provisioned inbounds."
+                  },
+                  "subId": {
+                    "type": "string",
+                    "description": "Shared subscription ID attached to created clients."
+                  },
+                  "acmeMode": {
+                    "type": "string",
+                    "description": "Certificate issuance mode (tls-alpn-01, dns-01-cf, self-signed)."
+                  },
+                  "acmeEmail": {
+                    "type": "string",
+                    "description": "ACME contact email address."
+                  },
+                  "acmeCfApiToken": {
+                    "type": "string",
+                    "description": "Cloudflare DNS API token (used with dns-01-cf)."
+                  },
+                  "speedtestEnable": {
+                    "type": "boolean",
+                    "description": "Enable embedded OpenSpeedTest fallback on unmatched HTTPS paths."
+                  }
+                }
+              },
+              "example": {
+                "domain": "proxy.example.com",
+                "publicPort": 443,
+                "presetIds": [
+                  "singbox-hysteria2-443",
+                  "xray-vless-reality-vision-443"
+                ],
+                "speedtestEnable": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {
+                      "type": "object",
+                      "properties": {
+                        "domain": {
+                          "type": "string"
+                        },
+                        "publicPort": {
+                          "type": "integer"
+                        },
+                        "subId": {
+                          "type": "string"
+                        },
+                        "subUrl": {
+                          "type": "string"
+                        },
+                        "warnings": {
+                          "type": "array",
+                          "nullable": true,
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "inbounds": {
+                          "type": "array",
+                          "nullable": true,
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "integer"
+                              },
+                              "tag": {
+                                "type": "string"
+                              },
+                              "remark": {
+                                "type": "string"
+                              },
+                              "core": {
+                                "type": "string"
+                              },
+                              "protocol": {
+                                "type": "string"
+                              },
+                              "port": {
+                                "type": "integer"
+                              },
+                              "publicPort": {
+                                "type": "integer"
+                              },
+                              "gatewayMode": {
+                                "type": "string"
+                              },
+                              "templateId": {
+                                "type": "string"
+                              },
+                              "bundles": {
+                                "type": "array",
+                                "nullable": true,
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "email": {
+                                      "type": "string"
+                                    },
+                                    "protocol": {
+                                      "type": "string"
+                                    },
+                                    "core": {
+                                      "type": "string"
+                                    },
+                                    "uri": {
+                                      "type": "string"
+                                    },
+                                    "singboxOutboundJson": {
+                                      "type": "string"
+                                    },
+                                    "warnings": {
+                                      "type": "array",
+                                      "nullable": true,
+                                      "items": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "gatewayRuntime": {
+                          "type": "object"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/panel/api/gateway/clientLinks/{id}": {
+      "get": {
+        "tags": [
+          "Unified :443 Gateway & Multi-Core"
+        ],
+        "summary": "Generate authoritative gateway-projected share URIs, sing-box client outbound JSON snippets, and warnings for an inbound.",
+        "operationId": "get_panel_api_gateway_clientLinks_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Inbound ID.",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "email",
+            "in": "query",
+            "required": false,
+            "description": "Filter bundles to a single client email.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "msg": {
+                      "type": "string"
+                    },
+                    "obj": {
+                      "type": "array",
+                      "nullable": true,
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "email": {
+                            "type": "string"
+                          },
+                          "protocol": {
+                            "type": "string"
+                          },
+                          "core": {
+                            "type": "string"
+                          },
+                          "uri": {
+                            "type": "string"
+                          },
+                          "singboxOutboundJson": {
+                            "type": "string"
+                          },
+                          "warnings": {
+                            "type": "array",
+                            "nullable": true,
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "example": {
+                  "success": true,
+                  "obj": [
+                    {
+                      "email": "alice@example.com",
+                      "protocol": "hysteria",
+                      "core": "singbox",
+                      "uri": "hysteria2://pass@proxy.example.com:443?sni=proxy.example.com&alpn=h3#Hysteria2-alice"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
       }
     }
   }

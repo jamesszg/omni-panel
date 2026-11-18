@@ -45,6 +45,13 @@ export const InboundCoreSchema = z.object({
   }),
   streamSettings: StreamSettingsSchema.optional(),
   clientStats: z.string().optional(),
+  core: z.string().optional(),
+  gatewayMode: z.string().optional(),
+  gatewaySni: z.string().optional(),
+  gatewayPath: z.string().optional(),
+  publicPort: z.number().int().optional(),
+  templateId: z.string().optional(),
+  configOverride: z.string().optional(),
 });
 export type InboundCore = z.infer<typeof InboundCoreSchema>;
 

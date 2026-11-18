@@ -1,5 +1,5 @@
 import { NativeSelect } from '@/components/form/NativeSelect';
-import { useEffect, useRef, useState, useId } from 'react';
+import { useEffect, useMemo, useRef, useState, useId } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -7,6 +7,7 @@ import dayjs from 'dayjs';
 import {
   Alert,
   ConfigProvider,
+  Divider,
   Form,
   Input,
   InputNumber,
@@ -74,6 +75,8 @@ import {
   HysteriaFields,
   MasqueSettingsFields,
   MasqueStreamFields,
+  AnytlsFields,
+  ShadowtlsFields,
   MixedFields,
   MtprotoFields,
   ShadowsocksFields,
@@ -196,6 +199,21 @@ interface InboundFormModalProps {
   availableNodesFetched?: boolean;
 }
 
+interface GatewayTemplateSpec {
+  id: string;
+  name: string;
+  description: string;
+  core: string;
+  protocol: string;
+  transport: string;
+  security: string;
+  gatewayMode: string;
+  recommendedAlpn?: string[];
+  defaultPort: number;
+  oneClickPreset: boolean;
+  restrictions?: string[];
+}
+
 function buildAddModeValues(): InboundFormValues {
   const settings = createDefaultInboundSettings('vless') ?? undefined;
   return rawInboundToFormValues({
@@ -266,6 +284,7 @@ export default function InboundFormModal({
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<RealityScanResult | null>(null);
   const [activeTab, setActiveTab] = useState('basic');
+  const [templates, setTemplates] = useState<GatewayTemplateSpec[]>([]);
   const {
     fallbacks,
     hasStoredFallbacks,
@@ -313,7 +332,16 @@ export default function InboundFormModal({
     protocol !== Protocols.MASQUE &&
     protocol !== Protocols.WIREGUARD &&
     protocol !== Protocols.TUNNEL &&
-    protocol !== Protocols.TUIC;
+    protocol !== Protocols.TUIC &&
+    protocol !== Protocols.ANYTLS &&
+    protocol !== Protocols.SHADOWTLS;
+
+  const wTemplateId = (useWatch({ control, name: 'templateId' }) ?? '') as string;
+  const wGatewayMode = (useWatch({ control, name: 'gatewayMode' }) ?? '') as string;
+  const selectedTemplate = useMemo(
+    () => templates.find((item) => item.id === wTemplateId) ?? null,
+    [templates, wTemplateId],
+  );
 
   const wPort = useWatch({ control, name: 'port' });
   const wListen = (useWatch({ control, name: 'listen' }) ?? '') as string;
@@ -553,6 +581,89 @@ export default function InboundFormModal({
    * JSON edits, open reset) must not, matching the legacy onValuesChange.
    */
   useEffect(() => {
+    if (!open || templates.length > 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const msg = await HttpUtil.get('/panel/api/gateway/templates', undefined, { silent: true });
+        if (!cancelled && msg?.success && Array.isArray(msg.obj)) {
+          setTemplates(msg.obj as GatewayTemplateSpec[]);
+        }
+      } catch {
+        /* ignore when gateway endpoint is unavailable */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, templates.length]);
+
+  const applyTemplatePreset = (templateId: string) => {
+    setV('templateId', templateId);
+    if (!templateId) return;
+    const tpl = templates.find((item) => item.id === templateId);
+    if (!tpl) return;
+    setV('protocol', tpl.protocol);
+    setV('core', tpl.core || 'auto');
+    setV('gatewayMode', tpl.gatewayMode || 'direct');
+    setV('publicPort', 443);
+    if (mode === 'add') {
+      setV('remark', tpl.name);
+    }
+    setV('port', tpl.defaultPort > 0 ? tpl.defaultPort : 443);
+    setV('settings', createDefaultInboundSettings(tpl.protocol) ?? {});
+    if (tpl.gatewayMode === 'l7_path') {
+      const l7Path = `/${tpl.transport || 'proxy'}-${RandomUtil.randomLowerAndNum(6)}`;
+      setV('gatewayPath', l7Path);
+      setV('listen', '127.0.0.1');
+      const netKey = `${tpl.transport}Settings`;
+      setV('streamSettings', {
+        network: tpl.transport,
+        security: 'none',
+        [netKey]: tpl.transport === 'grpc' ? { serviceName: l7Path.slice(1) } : { path: l7Path },
+      });
+    } else if (tpl.protocol === Protocols.HYSTERIA) {
+      setV('streamSettings', {
+        network: 'hysteria',
+        security: 'tls',
+        hysteriaSettings: HysteriaStreamSettingsSchema.parse({}),
+        tlsSettings: {
+          ...createHysteriaTlsSettingsWithDefaultCert(),
+          alpn: tpl.recommendedAlpn ?? ['h3'],
+        },
+      });
+    } else if (tpl.security === 'reality') {
+      setV('gatewaySni', 'www.microsoft.com');
+      setV('listen', '127.0.0.1');
+      setV('streamSettings', {
+        network: tpl.transport || 'tcp',
+        security: 'reality',
+        realitySettings: {
+          show: false,
+          dest: 'www.microsoft.com:443',
+          serverNames: ['www.microsoft.com'],
+        },
+        ...(tpl.core === 'xray'
+          ? { tcpSettings: TcpStreamSettingsSchema.parse({ header: { type: 'none' } }) }
+          : {}),
+      });
+    } else if (tpl.security === 'tls') {
+      setV('listen', tpl.gatewayMode === 'rpxy_sni' ? '127.0.0.1' : '');
+      setV('streamSettings', {
+        network: tpl.transport || 'tcp',
+        security: 'tls',
+        tlsSettings: {
+          serverName: '',
+          ...(tpl.recommendedAlpn ? { alpn: tpl.recommendedAlpn } : {}),
+        },
+      });
+    } else {
+      setV('listen', tpl.gatewayMode === 'rpxy_sni' ? '127.0.0.1' : '');
+      setV('streamSettings', { network: tpl.transport || 'tcp', security: 'none' });
+    }
+  };
+
+  useEffect(() => {
     if (mode === 'edit') return;
     /* eslint-disable-next-line react-hooks/incompatible-library */
     const sub = methods.watch((_value, { name, type }) => {
@@ -560,6 +671,16 @@ export default function InboundFormModal({
       const next = getV('protocol') as string;
       const settings = createDefaultInboundSettings(next) ?? undefined;
       setV('settings', settings);
+      if (
+        next === Protocols.HYSTERIA ||
+        next === Protocols.TUIC ||
+        next === Protocols.ANYTLS ||
+        next === Protocols.SHADOWTLS
+      ) {
+        setV('core', 'singbox');
+      } else if (getV('core') === 'singbox') {
+        setV('core', 'auto');
+      }
       if (!NODE_ELIGIBLE_PROTOCOLS[next]) {
         setV('nodeId', null);
       }
@@ -589,7 +710,18 @@ export default function InboundFormModal({
           masqueSettings: { path: MASQUE_DEFAULT_PATH },
           tlsSettings: createMasqueTlsSettingsWithDefaultCert(),
         });
-      } else if (next === Protocols.WIREGUARD || next === Protocols.TUNNEL) {
+      } else if (next === Protocols.ANYTLS) {
+        setV('streamSettings', {
+          network: 'tcp',
+          security: 'tls',
+          tcpSettings: TcpStreamSettingsSchema.parse({ header: { type: 'none' } }),
+          tlsSettings: { serverName: '', alpn: ['h2', 'http/1.1'] },
+        });
+      } else if (
+        next === Protocols.WIREGUARD ||
+        next === Protocols.TUNNEL ||
+        next === Protocols.SHADOWTLS
+      ) {
         setV('streamSettings', { security: 'none' });
       } else {
         const current = getV('streamSettings') as { network?: string } | undefined;
@@ -606,6 +738,24 @@ export default function InboundFormModal({
     // settings.fallbacks has no bound field; shouldUnregister=false keeps it from
     // the reset object. An edit sends no clients: the server keeps the stored ones.
     const values = methods.getValues() as InboundFormValues;
+    if (values.configOverride && values.configOverride.trim() !== '') {
+      try {
+        const parsedOverride = JSON.parse(values.configOverride);
+        if (
+          !parsedOverride ||
+          typeof parsedOverride !== 'object' ||
+          Array.isArray(parsedOverride)
+        ) {
+          setActiveTab('basic');
+          messageApi.error(t('pages.inbounds.omni.invalidConfigOverride'));
+          return;
+        }
+      } catch {
+        setActiveTab('basic');
+        messageApi.error(t('pages.inbounds.omni.invalidConfigOverride'));
+        return;
+      }
+    }
     const parsed = InboundFormSchema.safeParse(values);
     if (!parsed.success) {
       const issues = parsed.error.issues;
@@ -712,8 +862,47 @@ export default function InboundFormModal({
         </FormField>
       )}
 
+      {templates.length > 0 && (
+        <FormField
+          name="templateId"
+          label={t('pages.inbounds.omni.templatePreset')}
+          onAfterChange={(value) => applyTemplatePreset((value as string) || '')}
+        >
+          <Select
+            allowClear
+            placeholder={t('pages.inbounds.omni.templatePlaceholder')}
+            options={templates.map((tpl) => ({
+              value: tpl.id,
+              label: `${tpl.name} [${tpl.core}]`,
+            }))}
+          />
+        </FormField>
+      )}
+
+      {selectedTemplate?.restrictions && selectedTemplate.restrictions.length > 0 && (
+        <Alert
+          className="mt-12"
+          style={{ marginBottom: 12 }}
+          type="info"
+          showIcon
+          title={selectedTemplate.name}
+          description={selectedTemplate.restrictions.join(' ')}
+        />
+      )}
+
       <FormField name="protocol" label={t('pages.inbounds.protocol')}>
         <NativeSelect id="protocol" disabled={mode === 'edit'} options={PROTOCOL_OPTIONS} />
+      </FormField>
+
+      <FormField name="core" label={t('pages.inbounds.omni.coreEngine')}>
+        <NativeSelect
+          id={`${uid}-core`}
+          options={[
+            { value: 'auto', label: t('pages.inbounds.omni.coreAuto') },
+            { value: 'xray', label: 'Xray-core' },
+            { value: 'singbox', label: 'sing-box (upstream)' },
+          ]}
+        />
       </FormField>
 
       <FormField
@@ -849,6 +1038,42 @@ export default function InboundFormModal({
           {t('pages.inbounds.leaveBlankToNeverExpire')}
         </span>
       </Form.Item>
+
+      <Divider titlePlacement="start">{t('pages.inbounds.omni.gatewayRouting')}</Divider>
+
+      <FormField name="gatewayMode" label={t('pages.inbounds.omni.gatewayMode')}>
+        <NativeSelect
+          id={`${uid}-gatewayMode`}
+          options={[
+            { value: 'direct', label: t('pages.inbounds.omni.gatewayModeDirect') },
+            { value: 'rpxy_sni', label: t('pages.inbounds.omni.gatewayModeSni') },
+            { value: 'rpxy_quic', label: t('pages.inbounds.omni.gatewayModeQuic') },
+            { value: 'l7_path', label: t('pages.inbounds.omni.gatewayModeL7') },
+          ]}
+        />
+      </FormField>
+
+      {(wGatewayMode === 'rpxy_sni' || wGatewayMode === 'rpxy_quic') && (
+        <FormField name="gatewaySni" label={t('pages.inbounds.omni.gatewaySni')}>
+          <Input placeholder="sub.example.com" />
+        </FormField>
+      )}
+
+      {wGatewayMode === 'l7_path' && (
+        <FormField name="gatewayPath" label={t('pages.inbounds.omni.gatewayPath')}>
+          <Input placeholder="/ws-path" />
+        </FormField>
+      )}
+
+      {wGatewayMode && wGatewayMode !== 'direct' && (
+        <FormField name="publicPort" label={t('pages.inbounds.omni.publicPort')}>
+          <InputNumber min={1} max={65535} placeholder="443" style={{ width: '100%' }} />
+        </FormField>
+      )}
+
+      <FormField name="configOverride" label={t('pages.inbounds.omni.configOverride')}>
+        <Input.TextArea rows={3} placeholder='{"tcp_fast_open": true}' />
+      </FormField>
     </>
   );
 
@@ -880,6 +1105,10 @@ export default function InboundFormModal({
       )}
 
       {protocol === Protocols.TUIC && <TuicFields />}
+
+      {protocol === Protocols.ANYTLS && <AnytlsFields />}
+
+      {protocol === Protocols.SHADOWTLS && <ShadowtlsFields />}
 
       {protocol === Protocols.MASQUE && <MasqueSettingsFields />}
 
@@ -1263,6 +1492,8 @@ export default function InboundFormModal({
                     Protocols.AMNEZIAWG,
                     Protocols.TUIC,
                     Protocols.MASQUE,
+                    Protocols.ANYTLS,
+                    Protocols.SHADOWTLS,
                   ] as string[]
                 ).includes(protocol) ||
                 isFallbackHost ||
