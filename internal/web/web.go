@@ -21,6 +21,7 @@ import (
 	"github.com/jamesszg/omni-panel/internal/amneziawgnet"
 	"github.com/jamesszg/omni-panel/internal/config"
 	"github.com/jamesszg/omni-panel/internal/eventbus"
+	"github.com/jamesszg/omni-panel/internal/gateway"
 	"github.com/jamesszg/omni-panel/internal/logger"
 	"github.com/jamesszg/omni-panel/internal/mtproto"
 	"github.com/jamesszg/omni-panel/internal/singbox"
@@ -361,6 +362,10 @@ func (s *Server) startTask(restartXray bool, loc *time.Location) {
 	singboxJob := job.NewSingboxJob()
 	_, _ = s.cron.AddJob(cadenceSingbox, singboxJob)
 	go singboxJob.Run()
+
+	gatewayJob := job.NewGatewayJob()
+	_, _ = s.cron.AddJob(cadenceSingbox, gatewayJob)
+	go gatewayJob.Run()
 
 	// check client ips from log file every 10 sec
 	_, _ = s.cron.AddJob(cadenceClientIPScan, job.NewCheckClientIpJob())
@@ -811,6 +816,7 @@ func (s *Server) stop(stopXray bool, stopTgBot bool) error {
 		}
 		mtproto.GetManager().StopAll()
 		singbox.GetManager().StopAll()
+		gateway.GetManager().StopAll()
 		amneziawgnet.GetManager().StopAll()
 		job.NewAmneziaWGJob().FlushKernelTraffic()
 		amneziawgkern.GetManager().StopAll()
