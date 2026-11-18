@@ -79,7 +79,8 @@ if [[ -z "${AUTH_CSRF_TOKEN}" ]]; then
 fi
 
 echo "[4/6] Listing curated templates and bootstrapping :443 unified stack..."
-curl -fsSk -b "${COOKIE_JAR}" "${OMNI_URL}/panel/api/gateway/templates" | grep -q 'singbox-hysteria2-443'
+TEMPLATES_JSON=$(curl -fsSk -b "${COOKIE_JAR}" "${OMNI_URL}/panel/api/gateway/templates")
+printf '%s' "${TEMPLATES_JSON}" | grep -q 'singbox-hysteria2-443'
 
 EXISTING_INBOUNDS=$(curl -fsSk -b "${COOKIE_JAR}" "${OMNI_URL}/panel/api/inbounds/list" || true)
 if printf '%s' "${EXISTING_INBOUNDS}" | grep -q 'singbox-hysteria2-443'; then
@@ -132,8 +133,9 @@ if [[ -f "${XUI_FOLDER}/bin/singbox/config.json" ]]; then
 fi
 
 echo "[6/6] Verifying :443 HTTPS OpenSpeedTest fallback (/, /downloading, /upload)..."
-curl -fsSk --resolve "${OMNI_DOMAIN}:443:127.0.0.1" "https://${OMNI_DOMAIN}/" | grep -qi "OpenSpeedTest"
-DL_BYTES=$(curl -fsSk --resolve "${OMNI_DOMAIN}:443:127.0.0.1" "https://${OMNI_DOMAIN}/downloading?n=1" | wc -c)
+INDEX_HTML=$(curl -fsSk --resolve "${OMNI_DOMAIN}:443:127.0.0.1" "https://${OMNI_DOMAIN}/")
+printf '%s' "${INDEX_HTML}" | grep -qi "OpenSpeedTest"
+DL_BYTES=$(curl -fsSk -o /dev/null -w '%{size_download}' --resolve "${OMNI_DOMAIN}:443:127.0.0.1" "https://${OMNI_DOMAIN}/downloading?n=1")
 echo "Downloaded ${DL_BYTES} bytes from /downloading"
 test "${DL_BYTES}" -gt 1000000
 UPLOAD_CODE=$(curl -sk -o /dev/null -w '%{http_code}' --resolve "${OMNI_DOMAIN}:443:127.0.0.1" \
